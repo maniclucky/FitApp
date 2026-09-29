@@ -1,0 +1,28 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies & build output
+node_modules/
+dist/
+build/
+__pycache__/
+*.pyc
+.venv/
+
+# Logs
+*.log
+
+# Local SQLite database (Flask instance folder)
+instance/
+
+# Claude Code local settings
+.claude/settings.local.json
