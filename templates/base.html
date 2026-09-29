@@ -18,7 +18,7 @@
   </main>
   {% block tabbar %}
   <nav class="tabbar" aria-label="Main">
-    {% for endpoint, label in [('workouts', 'Workouts'), ('exercises', 'Exercises')] %}
+    {% for endpoint, label in [('day', 'Today'), ('workouts', 'Workouts'), ('exercises', 'Exercises')] %}
       <a href="{{ url_for(endpoint) }}" {% if request.endpoint == endpoint %}aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
   </nav>

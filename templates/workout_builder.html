@@ -36,7 +36,7 @@
 {% if workout %}
   <button type="button" class="button danger block delete-trigger"
           data-confirm-delete="{{ url_for('delete_workout', workout_id=workout.id) }}" data-name="{{ workout.name }}"
-          data-detail="This permanently removes the workout and all its sets. It can’t be undone.">Delete workout</button>
+          data-detail="This permanently removes the workout plan. Days you’ve already logged keep their sets.">Delete workout</button>
   {% include "_confirm_delete.html" %}
 {% endif %}
 

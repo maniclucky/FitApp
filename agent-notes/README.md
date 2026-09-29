@@ -22,4 +22,4 @@ Anything here is committed to git so future sessions can build on it.
 
 ## Index
 - [stack-decisions.md](stack-decisions.md) — why Flask, mobile-first layout rules, localhost-only constraint
-- [data-model.md](data-model.md) — exercise + workout tables, superset/AMRAP rules, builder behavior, no-migrations caveat
+- [data-model.md](data-model.md) — exercises, workouts, day log (target snapshots), superset/AMRAP/rest-timer rules, delete rules, demo data

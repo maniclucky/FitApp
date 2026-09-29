@@ -19,6 +19,30 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+def group_blocks(slots):
+    """Group ordered slots for display: consecutive slots sharing a superset_group form one block."""
+    blocks = []
+    for slot in slots:
+        if blocks and slot.superset_group is not None and blocks[-1][-1].superset_group == slot.superset_group:
+            blocks[-1].append(slot)
+        else:
+            blocks.append([slot])
+    return blocks
+
+
+def rep_target_label(lo, hi, amrap):
+    """e.g. '8–12', '10', '8+', '≤12', 'AMRAP', or '' for no target."""
+    if amrap:
+        return "AMRAP"
+    if lo and hi:
+        return str(lo) if lo == hi else f"{lo}–{hi}"
+    if lo:
+        return f"{lo}+"
+    if hi:
+        return f"≤{hi}"
+    return ""
+
+
 class Exercise(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100, collation="NOCASE"), nullable=False, unique=True)
@@ -84,14 +108,7 @@ class Workout(db.Model):
 
     @property
     def blocks(self):
-        """Exercises grouped for display: each superset is one block, other exercises stand alone."""
-        blocks = []
-        for wx in self.exercises:
-            if blocks and wx.superset_group is not None and blocks[-1][-1].superset_group == wx.superset_group:
-                blocks[-1].append(wx)
-            else:
-                blocks.append([wx])
-        return blocks
+        return group_blocks(self.exercises)
 
 
 class WorkoutExercise(db.Model):
@@ -154,13 +171,73 @@ class WorkoutSet(db.Model):
 
     @property
     def label(self):
-        if self.is_amrap:
-            return "AMRAP"
-        lo, hi = self.reps_min, self.reps_max
-        if lo and hi:
-            return str(lo) if lo == hi else f"{lo}–{hi}"
-        if lo:
-            return f"{lo}+"
-        if hi:
-            return f"≤{hi}"
-        return ""
+        return rep_target_label(self.reps_min, self.reps_max, self.is_amrap)
+
+
+class LogExercise(db.Model):
+    """An exercise performed (or planned) on a calendar day.
+
+    Loading a workout copies its slots here; the plan's rep targets are snapshotted onto
+    each LogSet so later edits to (or deletion of) the workout never change history.
+    Consecutive entries on a day sharing a non-null superset_group form a superset.
+    """
+
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, nullable=False, index=True)
+    position = db.Column(db.Integer, nullable=False)
+    exercise_id = db.Column(db.ForeignKey("exercise.id"), nullable=False)
+    workout_id = db.Column(db.ForeignKey("workout.id"))  # informational: which workout it was loaded from
+    superset_group = db.Column(db.Integer)
+
+    __table_args__ = (db.UniqueConstraint("date", "position"),)
+
+    exercise = db.relationship("Exercise")
+    workout = db.relationship("Workout")
+    sets = db.relationship(
+        "LogSet",
+        back_populates="log_exercise",
+        order_by="LogSet.position",
+        cascade="all, delete-orphan",
+    )
+
+
+class LogSet(db.Model):
+    """One set on a day: the snapshotted target plus what was actually done."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    log_exercise_id = db.Column(db.ForeignKey("log_exercise.id"), nullable=False)
+    position = db.Column(db.Integer, nullable=False)
+    target_reps_min = db.Column(db.Integer)
+    target_reps_max = db.Column(db.Integer)
+    target_amrap = db.Column(db.Boolean, nullable=False, default=False)
+    weight = db.Column(db.Float)            # lb
+    reps = db.Column(db.Integer)
+    duration_seconds = db.Column(db.Integer)
+    distance = db.Column(db.Float)          # mi
+    completed_at = db.Column(db.DateTime(timezone=True))
+
+    __table_args__ = (
+        db.UniqueConstraint("log_exercise_id", "position"),
+        db.CheckConstraint(
+            "(weight IS NULL OR weight >= 0) AND (reps IS NULL OR reps >= 0)"
+            " AND (duration_seconds IS NULL OR duration_seconds >= 0)"
+            " AND (distance IS NULL OR distance >= 0)",
+            name="ck_log_set_non_negative",
+        ),
+    )
+
+    log_exercise = db.relationship("LogExercise", back_populates="sets")
+
+    @property
+    def target_label(self):
+        return rep_target_label(self.target_reps_min, self.target_reps_max, self.target_amrap)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "weight": self.weight,
+            "reps": self.reps,
+            "duration_seconds": self.duration_seconds,
+            "distance": self.distance,
+            "completed": self.completed_at is not None,
+        }

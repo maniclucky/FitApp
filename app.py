@@ -1,20 +1,26 @@
 import json
+import math
 import os
+from datetime import date, timedelta
 
-from flask import Flask, flash, redirect, render_template, request, url_for
-from sqlalchemy import select, update
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
+from sqlalchemy import func, select, update
 
 from models import (
     MUSCLE_ROLES,
     TRACKING_MODES,
     Exercise,
     ExerciseMuscle,
+    LogExercise,
+    LogSet,
     MuscleGroup,
     Workout,
     WorkoutExercise,
     WorkoutSet,
     db,
+    group_blocks,
     seed_muscle_groups,
+    utcnow,
 )
 
 app = Flask(__name__)
@@ -54,7 +60,7 @@ def get_or_create_muscle(name):
 
 @app.route("/")
 def index():
-    return redirect(url_for("workouts"))
+    return redirect(url_for("day"))
 
 
 def workouts_using(exercise_id):
@@ -63,11 +69,31 @@ def workouts_using(exercise_id):
     )))
 
 
+def exercise_delete_blocker(exercise_id):
+    """Why an exercise can't be deleted (it's in a workout or has logged history), or None."""
+    reasons = []
+    names = workouts_using(exercise_id)
+    if names:
+        reasons.append(f"used in {', '.join(names)}")
+    days = db.session.scalar(
+        select(func.count(func.distinct(LogExercise.date))).where(LogExercise.exercise_id == exercise_id)
+    )
+    if days:
+        reasons.append(f"logged on {days} day{'' if days == 1 else 's'}")
+    if not reasons:
+        return None
+    where = " and ".join(
+        (["those workouts" if len(names) > 1 else "that workout"] if names else [])
+        + (["those days" if days > 1 else "that day"] if days else [])
+    )
+    return f"It\u2019s {' and '.join(reasons)}. Remove it from {where} first."
+
+
 @app.route("/exercises")
 def exercises():
     exercises = db.session.scalars(select(Exercise).order_by(Exercise.name)).all()
-    used_in = {ex.id: workouts_using(ex.id) for ex in exercises}
-    return render_template("exercises.html", exercises=exercises, used_in=used_in)
+    blocked = {ex.id: exercise_delete_blocker(ex.id) for ex in exercises}
+    return render_template("exercises.html", exercises=exercises, blocked=blocked)
 
 
 @app.route("/exercises/new", methods=["GET", "POST"])
@@ -147,7 +173,7 @@ def exercise_form(exercise_id=None):
     return render_template(
         "exercise_form.html",
         exercise=exercise,
-        used_in=workouts_using(exercise.id) if exercise else [],
+        blocked=exercise_delete_blocker(exercise.id) if exercise else None,
         form=form,
         errors=errors,
         muscles=muscles,
@@ -159,13 +185,9 @@ def exercise_form(exercise_id=None):
 @app.route("/exercises/<int:exercise_id>/delete", methods=["POST"])
 def delete_exercise(exercise_id):
     exercise = db.get_or_404(Exercise, exercise_id)
-    used_in = workouts_using(exercise.id)
-    if used_in:
-        flash(
-            f"\u201c{exercise.name}\u201d is used in {', '.join(used_in)}. Remove it from "
-            "those workouts before deleting it.",
-            "error",
-        )
+    blocker = exercise_delete_blocker(exercise.id)
+    if blocker:
+        flash(f"Can\u2019t delete \u201c{exercise.name}\u201d. {blocker}", "error")
         return redirect(url_for("exercise_form", exercise_id=exercise.id))
     db.session.delete(exercise)
     db.session.commit()
@@ -335,10 +357,269 @@ def workout_builder(workout_id=None):
 @app.route("/workouts/<int:workout_id>/delete", methods=["POST"])
 def delete_workout(workout_id):
     workout = db.get_or_404(Workout, workout_id)
+    # Logged days keep their snapshotted sets; they just forget which workout they came from.
+    db.session.execute(update(LogExercise).where(LogExercise.workout_id == workout.id).values(workout_id=None))
     db.session.delete(workout)
     db.session.commit()
     flash(f"Deleted \u201c{workout.name}\u201d.")
     return redirect(url_for("workouts"))
+
+
+# ----- Day view -----
+
+# How each tracking mode appears as a column in the day view.
+DAY_FIELDS = {
+    "weight": {"field": "weight", "label": "lb", "inputmode": "decimal"},
+    "reps": {"field": "reps", "label": "Reps", "inputmode": "numeric"},
+    "time": {"field": "duration_seconds", "label": "Time", "inputmode": "numeric"},
+    "distance": {"field": "distance", "label": "mi", "inputmode": "decimal"},
+}
+
+
+@app.template_filter("num")
+def format_number(value):
+    """135.0 -> '135', 2.25 -> '2.25', None -> ''."""
+    if value is None:
+        return ""
+    return f"{value:g}" if isinstance(value, float) else str(value)
+
+
+@app.template_filter("mmss")
+def format_duration(seconds):
+    if seconds is None:
+        return ""
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def parse_day(value):
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError):
+        abort(404)
+
+
+def day_title(d, today):
+    """(title, subtitle): 'Today' / 'Wednesday, Sep 29' or 'Jan 5' / 'Wednesday, 2000'."""
+    relative = {0: "Today", -1: "Yesterday", 1: "Tomorrow"}.get((d - today).days)
+    if relative:
+        return relative, f"{d:%A}, {d:%b} {d.day}"
+    return f"{d:%b} {d.day}", f"{d:%A}, {d.year}"
+
+
+def rest_after_sets(blocks):
+    """Set ids whose completion should auto-start the rest timer.
+
+    Outside a superset: every set. In a superset, round n (the nth set of each member) ends
+    with the last member that has an nth set, so only that member's nth set triggers it.
+    """
+    ids = set()
+    for block in blocks:
+        for lx in block:
+            for n, log_set in enumerate(lx.sets):
+                members = [m for m in block if len(m.sets) > n]
+                if members[-1] is lx:
+                    ids.add(log_set.id)
+    return ids
+
+
+@app.route("/day")
+@app.route("/day/<day_str>")
+def day(day_str=None):
+    today = date.today()
+    d = parse_day(day_str) if day_str else today
+    entries = db.session.scalars(
+        select(LogExercise).where(LogExercise.date == d).order_by(LogExercise.position)
+    ).all()
+    blocks = group_blocks(entries)
+    title, subtitle = day_title(d, today)
+    return render_template(
+        "day.html",
+        day=d,
+        today=today,
+        title=title,
+        subtitle=subtitle,
+        prev_day=d - timedelta(days=1),
+        next_day=d + timedelta(days=1),
+        blocks=blocks,
+        rest_after=rest_after_sets(blocks),
+        fields=DAY_FIELDS,
+        workouts=db.session.scalars(select(Workout).order_by(Workout.name)).all(),
+        exercise_options=[
+            {"id": e.id, "name": e.name, "modes": e.tracking_modes}
+            for e in db.session.scalars(select(Exercise).order_by(Exercise.name))
+        ],
+    )
+
+
+def day_next_position_and_group(d):
+    position, group = db.session.execute(
+        select(func.max(LogExercise.position), func.max(LogExercise.superset_group)).where(LogExercise.date == d)
+    ).one()
+    return (position or 0) + 1, group or 0
+
+
+def json_body():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        abort(400)
+    return data
+
+
+def json_id(data, key):
+    value = data.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        abort(400)
+    return value
+
+
+def add_workout_to_day(d, workout):
+    """Append a workout's exercises to a day, snapshotting its rep targets. Returns the new entries."""
+    position, last_group = day_next_position_and_group(d)
+    groups = {}  # workout superset_group -> day superset_group
+    entries = []
+    for wx in workout.exercises:
+        group = None
+        if wx.superset_group is not None:
+            group = groups.setdefault(wx.superset_group, last_group + len(groups) + 1)
+        entry = LogExercise(
+            date=d,
+            position=position,
+            exercise_id=wx.exercise_id,
+            workout_id=workout.id,
+            superset_group=group,
+            sets=[
+                LogSet(position=n, target_reps_min=ws.reps_min, target_reps_max=ws.reps_max,
+                       target_amrap=ws.is_amrap)
+                for n, ws in enumerate(wx.sets, start=1)
+            ],
+        )
+        db.session.add(entry)
+        entries.append(entry)
+        position += 1
+    return entries
+
+
+@app.post("/api/day/<day_str>/workouts")
+def api_load_workout(day_str):
+    d = parse_day(day_str)
+    workout = db.get_or_404(Workout, json_id(json_body(), "workout_id"))
+    add_workout_to_day(d, workout)
+    db.session.commit()
+    return jsonify(ok=True), 201
+
+
+@app.post("/api/day/<day_str>/exercises")
+def api_add_exercise(day_str):
+    d = parse_day(day_str)
+    exercise = db.get_or_404(Exercise, json_id(json_body(), "exercise_id"))
+    position, _ = day_next_position_and_group(d)
+    set_count = 3 if exercise.tracks_reps else 1
+    db.session.add(LogExercise(
+        date=d,
+        position=position,
+        exercise_id=exercise.id,
+        sets=[LogSet(position=n) for n in range(1, set_count + 1)],
+    ))
+    db.session.commit()
+    return jsonify(ok=True), 201
+
+
+def parse_log_value(value, label, *, integer, maximum):
+    """Blank -> None; otherwise a finite number in [0, maximum]. Raises ValueError with a user message."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"{label} must be a number.")
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} must be a number.") from None
+    if not math.isfinite(number) or not 0 <= number <= maximum:
+        raise ValueError(f"{label} must be between 0 and {maximum:,}.")
+    if integer:
+        if number != int(number):
+            raise ValueError(f"{label} must be a whole number.")
+        return int(number)
+    return round(number, 2)
+
+
+LOG_FIELDS = {
+    "weight": dict(label="Weight", integer=False, maximum=10_000),
+    "reps": dict(label="Reps", integer=True, maximum=9_999),
+    "duration_seconds": dict(label="Time", integer=True, maximum=86_400),
+    "distance": dict(label="Distance", integer=False, maximum=1_000),
+}
+
+
+@app.patch("/api/sets/<int:set_id>")
+def api_update_set(set_id):
+    log_set = db.get_or_404(LogSet, set_id)
+    data = json_body()
+    try:
+        for field, spec in LOG_FIELDS.items():
+            if field in data:
+                setattr(log_set, field, parse_log_value(data[field], **spec))
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    if "completed" in data:
+        log_set.completed_at = (log_set.completed_at or utcnow()) if data["completed"] else None
+    db.session.commit()
+    return jsonify(log_set.to_dict())
+
+
+@app.post("/api/log-exercises/<int:lx_id>/sets")
+def api_add_log_set(lx_id):
+    lx = db.get_or_404(LogExercise, lx_id)
+    last = lx.sets[-1] if lx.sets else None
+    log_set = LogSet(
+        position=last.position + 1 if last else 1,
+        target_reps_min=last.target_reps_min if last else None,
+        target_reps_max=last.target_reps_max if last else None,
+        target_amrap=last.target_amrap if last else False,
+    )
+    lx.sets.append(log_set)
+    db.session.commit()
+    return jsonify(log_set.to_dict()), 201
+
+
+@app.delete("/api/log-exercises/<int:lx_id>/sets/last")
+def api_remove_last_log_set(lx_id):
+    lx = db.get_or_404(LogExercise, lx_id)
+    if len(lx.sets) <= 1:
+        return jsonify(error="An exercise needs at least one set. Remove the exercise instead."), 409
+    last = lx.sets[-1]
+    if last.completed_at is not None:
+        return jsonify(error="The last set is completed. Un-check it before removing it."), 409
+    db.session.delete(last)
+    db.session.commit()
+    return "", 204
+
+
+@app.post("/log-exercises/<int:lx_id>/delete")
+def delete_log_exercise(lx_id):
+    lx = db.get_or_404(LogExercise, lx_id)
+    d, name = lx.date, lx.exercise.name
+    db.session.delete(lx)
+    db.session.commit()
+    flash(f"Removed \u201c{name}\u201d from this day.")
+    return redirect(url_for("day", day_str=d.isoformat()))
+
+
+@app.get("/api/calendar")
+def api_calendar():
+    """Per-day set counts for a month: {"YYYY-MM-DD": {"sets": n, "done": n}}."""
+    try:
+        first = date.fromisoformat(request.args.get("month", "") + "-01")
+    except ValueError:
+        abort(400)
+    after = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    rows = db.session.execute(
+        select(LogExercise.date, func.count(LogSet.id), func.count(LogSet.completed_at))
+        .join(LogSet)
+        .where(LogExercise.date >= first, LogExercise.date < after)
+        .group_by(LogExercise.date)
+    ).all()
+    return jsonify({d.isoformat(): {"sets": n, "done": done} for d, n, done in rows})
 
 
 if __name__ == "__main__":

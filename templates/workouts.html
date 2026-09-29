@@ -31,7 +31,7 @@
         </a>
         <button type="button" class="icon-btn danger card-delete" aria-label="Delete {{ w.name }}"
                 data-confirm-delete="{{ url_for('delete_workout', workout_id=w.id) }}" data-name="{{ w.name }}"
-                data-detail="This permanently removes the workout and all its sets. It can’t be undone.">&times;</button>
+                data-detail="This permanently removes the workout plan. Days you’ve already logged keep their sets.">&times;</button>
       </li>
     {% endfor %}
   </ul>
