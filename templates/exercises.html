@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Exercises · FitApp{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>Exercises</h1>
+  <a class="button" href="{{ url_for('exercise_form') }}">+ Add</a>
+</header>
+
+{% if exercises %}
+  <ul class="card-list">
+    {% for ex in exercises %}
+      <li class="card-wrap">
+        <a class="card card-link" href="{{ url_for('exercise_form', exercise_id=ex.id) }}">
+          <h2>{{ ex.name }}</h2>
+          <div class="badges">
+            {% for mode in ex.tracking_modes %}<span class="badge">{{ mode|capitalize }}</span>{% endfor %}
+          </div>
+          <p class="muscles"><strong>Primary:</strong> {{ ex.muscle_names('primary')|join(', ') }}</p>
+          {% set ancillary = ex.muscle_names('ancillary') %}
+          {% if ancillary %}
+            <p class="muscles"><strong>Ancillary:</strong> {{ ancillary|join(', ') }}</p>
+          {% endif %}
+        </a>
+        {% include "_exercise_delete_button.html" %}
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="empty">No exercises yet. Tap <strong>+ Add</strong> to create your first one.</p>
+{% endif %}
+{% include "_confirm_delete.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='confirm_delete.js') }}"></script>
+{% endblock %}

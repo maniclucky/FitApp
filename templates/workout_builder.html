@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if workout else 'New' }} workout · FitApp{% endblock %}
+{% block screen_class %}{% endblock %}
+{% block tabbar %}{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <a class="back" href="{{ url_for('workouts') }}" aria-label="Back to workouts">&larr;</a>
+  <h1>{{ 'Edit workout' if workout else 'New workout' }}</h1>
+</header>
+
+{% if errors %}
+  <div class="errors" role="alert">
+    <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  </div>
+{% endif %}
+
+<form method="post" class="form" id="builder-form" novalidate>
+  <div class="field">
+    <label for="name">Name</label>
+    <input id="name" name="name" type="text" maxlength="100" required autocomplete="off"
+           placeholder="e.g. Push Day" value="{{ name }}">
+  </div>
+
+  <div class="field">
+    <span class="field-label">Exercises</span>
+    <ol class="builder-list" id="builder-list"></ol>
+    <p class="empty small" id="builder-empty">No exercises yet.</p>
+    <button type="button" class="button subtle block" id="open-picker">+ Add exercise</button>
+  </div>
+
+  <input type="hidden" name="items" id="items-input">
+  <button type="submit" class="button block">Save workout</button>
+</form>
+
+{% if workout %}
+  <button type="button" class="button danger block delete-trigger"
+          data-confirm-delete="{{ url_for('delete_workout', workout_id=workout.id) }}" data-name="{{ workout.name }}"
+          data-detail="This permanently removes the workout and all its sets. It can’t be undone.">Delete workout</button>
+  {% include "_confirm_delete.html" %}
+{% endif %}
+
+<dialog class="sheet" id="picker" aria-labelledby="picker-title">
+  <div class="sheet-head">
+    <h2 id="picker-title">Add exercises</h2>
+    <button type="button" class="button" id="close-picker">Done</button>
+  </div>
+  {% if exercise_options %}
+    <input type="text" id="picker-search" placeholder="Search exercises" aria-label="Search exercises" autocomplete="off">
+    <ul class="picker-list" id="picker-list"></ul>
+    <p class="empty small" id="picker-none" hidden>No matches.</p>
+  {% else %}
+    <p class="empty small">You haven't created any exercises yet.
+      <a href="{{ url_for('exercise_form') }}">Create one first</a>.</p>
+  {% endif %}
+</dialog>
+
+<script type="application/json" id="exercise-options">{{ exercise_options|tojson }}</script>
+<script type="application/json" id="initial-items">{{ items|tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='workout_builder.js') }}"></script>
+<script src="{{ url_for('static', filename='confirm_delete.js') }}"></script>
+{% endblock %}

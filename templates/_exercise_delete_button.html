@@ -1,0 +1,8 @@
+{# Expects `ex` and `used_in` (dict of exercise id -> workout names, or a list for one exercise); optional `full` renders the big form button. #}
+{% set uses = used_in[ex.id] if used_in is mapping else used_in %}
+<button type="button"
+  {% if full %}class="button danger block delete-trigger"{% else %}class="icon-btn danger card-delete" aria-label="Delete {{ ex.name }}"{% endif %}
+  data-confirm-delete="{{ url_for('delete_exercise', exercise_id=ex.id) }}" data-name="{{ ex.name }}"
+  data-detail="This permanently removes the exercise. It can’t be undone."
+  {% if uses %}data-blocked="It’s used in {{ uses|join(', ') }}. Remove it from {{ 'that workout' if uses|length == 1 else 'those workouts' }} first."{% endif %}
+>{% if full %}Delete exercise{% else %}&times;{% endif %}</button>

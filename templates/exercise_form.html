@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if exercise else 'New' }} exercise · FitApp{% endblock %}
+{% block screen_class %}{% endblock %}
+{% block tabbar %}{% endblock %}
+
+{% macro muscle_field(role, legend, hint) %}
+<fieldset class="field">
+  <legend>{{ legend }}</legend>
+  <p class="hint">{{ hint }}</p>
+  <div class="chips" data-role="{{ role }}">
+    {% for m in muscles %}
+      <label class="chip">
+        <input type="checkbox" name="{{ role }}" value="{{ m }}" {% if m|lower in selected[role] %}checked{% endif %}>
+        <span>{{ m }}</span>
+      </label>
+    {% endfor %}
+  </div>
+  <div class="add-tag">
+    <input type="text" maxlength="50" placeholder="Add another muscle group" aria-label="Add a {{ legend|lower }} entry" data-add-for="{{ role }}">
+    <button type="button" class="button subtle" data-add-button="{{ role }}">Add</button>
+  </div>
+</fieldset>
+{% endmacro %}
+
+{% block content %}
+<header class="page-header">
+  <a class="back" href="{{ url_for('exercises') }}" aria-label="Back to exercises">&larr;</a>
+  <h1>{{ 'Edit exercise' if exercise else 'New exercise' }}</h1>
+</header>
+
+{% if errors %}
+  <div class="errors" role="alert">
+    <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  </div>
+{% endif %}
+
+<form method="post" class="form" novalidate>
+  <div class="field">
+    <label for="name">Name</label>
+    <input id="name" name="name" type="text" maxlength="100" required autocomplete="off"
+           placeholder="e.g. Bench Press" value="{{ form.name }}">
+  </div>
+
+  <fieldset class="field">
+    <legend>Track</legend>
+    <p class="hint">What you'll log for each set.</p>
+    <div class="chips grid">
+      {% for mode in tracking_modes %}
+        <label class="chip">
+          <input type="checkbox" name="tracking" value="{{ mode }}" {% if mode in form.tracking %}checked{% endif %}>
+          <span>{{ mode|capitalize }}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  {{ muscle_field('primary', 'Primary muscle groups', 'The main muscles this exercise targets.') }}
+  {{ muscle_field('ancillary', 'Ancillary muscle groups', 'Supporting muscles (optional).') }}
+
+  <button type="submit" class="button block">Save exercise</button>
+</form>
+
+{% if exercise %}
+  {% with ex=exercise, full=true %}{% include "_exercise_delete_button.html" %}{% endwith %}
+  {% include "_confirm_delete.html" %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='exercise_form.js') }}"></script>
+<script src="{{ url_for('static', filename='confirm_delete.js') }}"></script>
+{% endblock %}

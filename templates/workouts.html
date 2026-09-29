@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Workouts · FitApp{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>Workouts</h1>
+  <a class="button" href="{{ url_for('workout_builder') }}">+ New</a>
+</header>
+
+{% if workouts %}
+  <ul class="card-list">
+    {% for w in workouts %}
+      <li class="card-wrap">
+        <a class="card card-link" href="{{ url_for('workout_builder', workout_id=w.id) }}">
+        <h2>{{ w.name }}</h2>
+        <ol class="workout-summary">
+          {% for block in w.blocks %}
+            {% if block|length > 1 %}
+              <li class="superset-block">
+                <span class="superset-tag">Superset</span>
+                <ol>
+                  {% for wx in block %}
+                    <li><span>{{ wx.exercise.name }}</span><span class="set-summary">{{ wx.summary }}</span></li>
+                  {% endfor %}
+                </ol>
+              </li>
+            {% else %}
+              <li><span>{{ block[0].exercise.name }}</span><span class="set-summary">{{ block[0].summary }}</span></li>
+            {% endif %}
+          {% endfor %}
+        </ol>
+        </a>
+        <button type="button" class="icon-btn danger card-delete" aria-label="Delete {{ w.name }}"
+                data-confirm-delete="{{ url_for('delete_workout', workout_id=w.id) }}" data-name="{{ w.name }}"
+                data-detail="This permanently removes the workout and all its sets. It can’t be undone.">&times;</button>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="empty">No workouts yet. Tap <strong>+ New</strong> to build one.</p>
+{% endif %}
+{% include "_confirm_delete.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='confirm_delete.js') }}"></script>
+{% endblock %}

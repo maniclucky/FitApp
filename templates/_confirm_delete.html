@@ -1,0 +1,13 @@
+{# Shared delete confirmation, opened by any button with:
+     data-confirm-delete="<POST url>"  data-name="<item name>"
+     data-detail="<consequence text>"  (optional)
+     data-blocked="<why it can't be deleted>"  (optional; shows the reason and no Delete button)
+   See static/confirm_delete.js. #}
+<dialog class="sheet" id="confirm-delete" aria-labelledby="confirm-delete-title">
+  <h2 id="confirm-delete-title">Delete?</h2>
+  <p class="hint" id="confirm-delete-detail"></p>
+  <form method="post" class="sheet-actions" id="confirm-delete-form">
+    <button type="button" class="button subtle block" data-cancel>Cancel</button>
+    <button type="submit" class="button danger-solid block" data-submit>Delete</button>
+  </form>
+</dialog>
