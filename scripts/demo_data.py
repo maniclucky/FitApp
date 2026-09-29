@@ -1,25 +1,29 @@
-"""Seed or remove demo exercises and workouts for testing and visualization.
+"""Seed or remove demo exercises, workouts, and logged history for testing and visualization.
 
 Everything created here is named with DEMO_PREFIX so it's obvious in the UI
-and can be removed cleanly. Demo workouts only use demo exercises.
+and can be removed cleanly. Demo workouts only use demo exercises, and demo
+history (the past few weeks, ending yesterday) only logs demo exercises.
 
     .venv/bin/python scripts/demo_data.py            # (re)seed: removes old demo data first
     .venv/bin/python scripts/demo_data.py --remove   # remove all demo data
 """
 
 import argparse
+import random
 import sys
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import select  # noqa: E402
 
-from app import app, build_workout_exercises, get_or_create_muscle  # noqa: E402
+from app import add_workout_to_day, app, build_workout_exercises, get_or_create_muscle  # noqa: E402
 from models import (  # noqa: E402
     TRACKING_MODES,
     Exercise,
     ExerciseMuscle,
+    LogExercise,
     Workout,
     WorkoutExercise,
     db,
@@ -107,11 +111,89 @@ WORKOUTS = {
 }
 
 
+# ---- Logged history ----
+
+HISTORY_DAYS = 35
+# weekday (Mon=0) -> workout; Full Body replaces Push on odd weeks' Tuesdays for variety.
+SCHEDULE = {0: "Push Day", 2: "Pull Day", 4: "Leg Day", 5: "Conditioning"}
+
+# Starting working weight (lb) and weekly increase; missing = bodyweight/no weight.
+WEIGHTS = {
+    "Barbell Bench Press": (135, 5), "Incline Dumbbell Press": (45, 2.5), "Overhead Press": (85, 2.5),
+    "Tricep Pushdown": (40, 2.5), "Barbell Row": (115, 5), "Face Pull": (30, 2.5),
+    "Dumbbell Curl": (25, 2.5), "Back Squat": (185, 10), "Romanian Deadlift": (155, 5),
+    "Walking Lunge": (30, 2.5), "Standing Calf Raise": (90, 5), "Farmer's Carry": (50, 5),
+}
+# (seconds range, miles range) for time/distance exercises.
+CARDIO = {
+    "Plank": ((45, 90), None), "Farmer's Carry": ((40, 60), (0.02, 0.04)),
+    "Jump Rope": ((60, 120), None), "Treadmill Run": ((1500, 2100), (2.5, 3.5)),
+    "Rowing Machine": ((480, 720), (1.1, 1.6)), "Walking Lunge": (None, (0.02, 0.03)),
+}
+
+
+def fill_set(log_set, name, week, rng):
+    ex = log_set.log_exercise.exercise
+    if ex.tracks_weight and name in WEIGHTS:
+        start, step = WEIGHTS[name]
+        log_set.weight = start + step * week
+    if ex.tracks_reps:
+        if log_set.target_amrap:
+            log_set.reps = rng.randint(8, 15)
+        else:
+            lo = log_set.target_reps_min or max(1, (log_set.target_reps_max or 10) - 4)
+            hi = log_set.target_reps_max or lo + 4
+            log_set.reps = rng.randint(lo, hi)
+    seconds, miles = CARDIO.get(name, (None, None))
+    if ex.tracks_time and seconds:
+        log_set.duration_seconds = rng.randint(*seconds)
+    if ex.tracks_distance and miles:
+        log_set.distance = round(rng.uniform(*miles), 2)
+
+
+def seed_history(workouts):
+    rng = random.Random(42)  # deterministic demo data
+    today = date.today()
+    first = today - timedelta(days=HISTORY_DAYS)
+    sessions = []
+    for offset in range(HISTORY_DAYS):
+        d = first + timedelta(days=offset)
+        name = SCHEDULE.get(d.weekday())
+        if d.weekday() == 1 and (d.isocalendar().week % 2):
+            name = "Full Body Circuit"
+        if name and rng.random() > 0.12:  # skip the occasional session
+            sessions.append((d, name))
+
+    for i, (d, name) in enumerate(sessions):
+        week = (d - first).days // 7
+        entries = add_workout_to_day(d, workouts[name])
+        db.session.flush()
+        done_at = datetime.combine(d, time(18, 0), tzinfo=timezone.utc)
+        for entry in entries:
+            ex_name = entry.exercise.name.removeprefix(DEMO_PREFIX)
+            for log_set in entry.sets:
+                fill_set(log_set, ex_name, week, rng)
+                log_set.completed_at = done_at
+        if i == len(sessions) - 1:  # leave the latest session unfinished to show a partial day
+            for log_set in entries[-1].sets:
+                log_set.completed_at = None
+                log_set.weight = log_set.reps = log_set.duration_seconds = log_set.distance = None
+    return len(sessions)
+
+
 def demo(model):
     return select(model).where(model.name.startswith(DEMO_PREFIX, autoescape=True))
 
 
 def remove():
+    history = db.session.scalars(
+        select(LogExercise).join(Exercise).where(Exercise.name.startswith(DEMO_PREFIX, autoescape=True))
+    ).all()
+    for entry in history:
+        db.session.delete(entry)
+    days = len({entry.date for entry in history})
+    db.session.flush()
+
     workouts = db.session.scalars(demo(Workout)).all()
     for w in workouts:
         db.session.delete(w)
@@ -128,7 +210,7 @@ def remove():
             db.session.delete(ex)
             removed += 1
     db.session.commit()
-    print(f"Removed {len(workouts)} demo workouts and {removed} demo exercises.")
+    print(f"Removed {len(workouts)} demo workouts, {removed} demo exercises, and demo history on {days} days.")
     if kept:
         print("Kept demo exercises still used by non-demo workouts:\n  " + "\n  ".join(kept))
 
@@ -144,6 +226,7 @@ def seed():
         exercises[name] = ex
     db.session.flush()
 
+    workouts = {}
     for name, blocks in WORKOUTS.items():
         items = []
         for block in blocks:
@@ -156,8 +239,12 @@ def seed():
         workout = Workout(name=DEMO_PREFIX + name)
         workout.exercises.extend(build_workout_exercises(items))
         db.session.add(workout)
+        workouts[name] = workout
+    db.session.flush()
+
+    sessions = seed_history(workouts)
     db.session.commit()
-    print(f"Seeded {len(EXERCISES)} demo exercises and {len(WORKOUTS)} demo workouts.")
+    print(f"Seeded {len(EXERCISES)} demo exercises, {len(WORKOUTS)} demo workouts, and {sessions} days of history.")
 
 
 if __name__ == "__main__":
