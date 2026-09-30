@@ -35,11 +35,22 @@
                   <h2>{{ lx.exercise.name }}</h2>
                   {% if lx.workout %}<span class="log-source">{{ lx.workout.name }}</span>{% endif %}
                 </div>
+                <div class="log-head-actions">
+                <button type="button" class="button subtle small" data-history="{{ lx.exercise_id }}"
+                        data-name="{{ lx.exercise.name }}">History</button>
                 <button type="button" class="icon-btn danger" aria-label="Remove {{ lx.exercise.name }}"
                         data-confirm-delete="{{ url_for('delete_log_exercise', lx_id=lx.id) }}"
                         data-name="{{ lx.exercise.name }}"
                         data-detail="Removes it and its sets from this day.">&times;</button>
+                </div>
               </div>
+
+              {% if lx.exercise.note or lx.note %}
+                <div class="log-notes">
+                  {% if lx.exercise.note %}<p class="note exercise-note"><span class="note-kind">Every time</span>{{ lx.exercise.note }}</p>{% endif %}
+                  {% if lx.note %}<p class="note session-note"><span class="note-kind">This session</span>{{ lx.note }}</p>{% endif %}
+                </div>
+              {% endif %}
 
               <div class="log-grid" style="--cols: {{ modes|length }}">
                 <div class="log-row log-labels" aria-hidden="true">
@@ -54,19 +65,21 @@
                     <span class="set-num">{{ n }}</span>
                     {% for m in modes %}
                       {% set f = fields[m] %}
+                      {# Planned targets (snapshotted when the workout was loaded) show as placeholders. #}
                       {% if m == 'time' %}
                         {% set value = s.duration_seconds|mmss %}
-                        {% set placeholder = 'm:ss' %}
+                        {% set target = s.target_duration_seconds|mmss %}
                       {% elif m == 'reps' %}
                         {% set value = s.reps|num %}
-                        {% set placeholder = s.target_label or '–' %}
+                        {% set target = s.target_label %}
                       {% else %}
                         {% set value = s[f.field]|num %}
-                        {% set placeholder = '–' %}
+                        {% set target = s['target_' ~ f.field]|num %}
                       {% endif %}
                       <input type="text" inputmode="{{ f.inputmode }}" autocomplete="off"
-                             data-field="{{ f.field }}" value="{{ value }}" placeholder="{{ placeholder }}"
-                             aria-label="Set {{ n }} {{ f.label }}{% if m == 'reps' and s.target_label %}, target {{ s.target_label }}{% endif %}">
+                             data-field="{{ f.field }}" value="{{ value }}"
+                             placeholder="{{ target or ('m:ss' if m == 'time' else '–') }}"
+                             aria-label="Set {{ n }} {{ f.label }}{% if target %}, target {{ target }}{% endif %}">
                     {% endfor %}
                     <button type="button" class="check" aria-pressed="{{ 'true' if s.completed_at else 'false' }}"
                             aria-label="Set {{ n }} completed">&#10003;</button>
@@ -78,6 +91,9 @@
                 <button type="button" class="button subtle small" data-act="add-set" data-lx="{{ lx.id }}">+ Set</button>
                 <button type="button" class="button subtle small" data-act="remove-set" data-lx="{{ lx.id }}"
                         {% if lx.sets|length == 1 %}disabled{% endif %}>&minus; Set</button>
+                <button type="button" class="button subtle small notes-btn" data-notes="{{ lx.id }}"
+                        data-name="{{ lx.exercise.name }}" data-exercise-note="{{ lx.exercise.note or '' }}"
+                        data-session-note="{{ lx.note or '' }}">Notes</button>
               </div>
             </section>
           {% endfor %}
@@ -178,6 +194,37 @@
   </div>
 </dialog>
 
+<dialog class="sheet notes-sheet" id="notes-sheet" aria-labelledby="notes-sheet-title">
+  <div class="sheet-head">
+    <h2 id="notes-sheet-title"></h2>
+    <button type="button" class="button subtle" data-close>Cancel</button>
+  </div>
+  <form class="form" id="notes-form">
+    <div class="field">
+      <label for="exercise-note">Every time</label>
+      <p class="hint">Shown whenever you do this exercise.</p>
+      <textarea id="exercise-note" rows="3" maxlength="{{ note_max }}"></textarea>
+    </div>
+    <div class="field">
+      <label for="session-note">This session</label>
+      <p class="hint">Only for {{ 'today' if day == today else day|history_date }}. Kept in the exercise’s history.</p>
+      <textarea id="session-note" rows="3" maxlength="{{ note_max }}"></textarea>
+    </div>
+    <button type="submit" class="button block">Save notes</button>
+  </form>
+</dialog>
+
+<dialog class="sheet history-sheet" id="history-sheet" aria-labelledby="history-sheet-title">
+  <div class="sheet-head">
+    <div>
+      <h2 id="history-sheet-title"></h2>
+      <p class="hint">Before {{ 'today' if day == today else day|history_date }}</p>
+    </div>
+    <button type="button" class="button" data-close>Done</button>
+  </div>
+  <div class="history-body" id="history-body" aria-live="polite"></div>
+</dialog>
+
 <dialog class="sheet" id="calendar-sheet" aria-labelledby="cal-title">
   <div class="cal-head">
     <button type="button" class="icon-btn" data-month="-1" aria-label="Previous month">&lsaquo;</button>
@@ -234,6 +281,7 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='rest_timer.js') }}"></script>
+<script src="{{ url_for('static', filename='time_format.js') }}"></script>
 <script src="{{ url_for('static', filename='exercise_filter.js') }}"></script>
 <script src="{{ url_for('static', filename='day.js') }}"></script>
 <script src="{{ url_for('static', filename='confirm_delete.js') }}"></script>

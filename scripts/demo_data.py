@@ -19,13 +19,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import select  # noqa: E402
 
 from app import add_workout_to_day, app, build_workout_exercises, get_or_create_muscle  # noqa: E402
+from models import sync_muscle_groups  # noqa: E402
 from models import (  # noqa: E402
     TRACKING_MODES,
     Exercise,
     ExerciseMuscle,
     LogExercise,
+    MuscleGroup,
     Routine,
+    RoutineMuscleTarget,
     RoutineWorkout,
+    TargetPreset,
+    TargetPresetValue,
     Workout,
     WorkoutExercise,
     db,
@@ -35,25 +40,40 @@ DEMO_PREFIX = "[DEMO] "
 
 # name: (tracking modes, primary muscles, ancillary muscles)
 EXERCISES = {
-    "Barbell Bench Press": (["weight", "reps"], ["Chest"], ["Triceps", "Shoulders"]),
-    "Incline Dumbbell Press": (["weight", "reps"], ["Chest", "Shoulders"], ["Triceps"]),
-    "Overhead Press": (["weight", "reps"], ["Shoulders"], ["Triceps", "Traps", "Abs"]),
+    "Barbell Bench Press": (["weight", "reps"], ["Chest"], ["Triceps", "Front Deltoid"]),
+    "Incline Dumbbell Press": (["weight", "reps"], ["Chest", "Front Deltoid"], ["Triceps"]),
+    "Overhead Press": (["weight", "reps"], ["Front Deltoid"], ["Side Deltoid", "Triceps", "Traps", "Abs"]),
+    "Lateral Raise": (["weight", "reps"], ["Side Deltoid"], ["Traps"]),
     "Tricep Pushdown": (["weight", "reps"], ["Triceps"], []),
     "Pull-Up": (["weight", "reps"], ["Lats"], ["Biceps", "Upper Back", "Forearms"]),
-    "Barbell Row": (["weight", "reps"], ["Upper Back", "Lats"], ["Biceps", "Lower Back"]),
-    "Face Pull": (["weight", "reps"], ["Shoulders", "Upper Back"], ["Traps"]),
+    "Barbell Row": (["weight", "reps"], ["Upper Back", "Lats"], ["Biceps", "Rear Deltoid", "Lower Back"]),
+    "Face Pull": (["weight", "reps"], ["Rear Deltoid", "Upper Back"], ["Traps"]),
     "Dumbbell Curl": (["weight", "reps"], ["Biceps"], ["Forearms"]),
     "Back Squat": (["weight", "reps"], ["Quads", "Glutes"], ["Hamstrings", "Lower Back", "Abs"]),
     "Romanian Deadlift": (["weight", "reps"], ["Hamstrings", "Glutes"], ["Lower Back", "Forearms"]),
     "Walking Lunge": (["weight", "reps", "distance"], ["Quads", "Glutes"], ["Hamstrings", "Adductors", "Calves"]),
     "Standing Calf Raise": (["weight", "reps"], ["Calves"], []),
-    "Plank": (["time"], ["Abs"], ["Obliques", "Shoulders"]),
+    "Plank": (["time"], ["Abs"], ["Obliques", "Front Deltoid"]),
     "Hanging Leg Raise": (["reps"], ["Abs", "Hip Flexors"], ["Obliques", "Forearms"]),
     "Farmer's Carry": (["weight", "time", "distance"], ["Forearms", "Traps"], ["Abs", "Obliques"]),
     "Treadmill Run": (["time", "distance"], ["Quads", "Calves"], ["Hamstrings", "Glutes"]),
     "Rowing Machine": (["time", "distance"], ["Upper Back", "Lats"], ["Quads", "Biceps", "Hamstrings"]),
-    "Jump Rope": (["time"], ["Calves"], ["Shoulders", "Forearms"]),
+    "Jump Rope": (["time"], ["Calves"], ["Front Deltoid", "Forearms"]),
 }
+
+# Notes shown every time the exercise is used.
+EXERCISE_NOTES = {
+    "Barbell Bench Press": "Shoulder blades pinned. Bar touches just below the nipple line.",
+    "Lateral Raise": "Lead with the elbows, no swinging.",
+    "Rowing Machine": "Damper on 5.",
+}
+# Session notes, handed out in turn to the first exercise of every third session.
+SESSION_NOTES = [
+    "Felt strong. Try adding weight next time.",
+    "Left elbow a bit sore on the last set.",
+    "Short on sleep; kept it easy.",
+    "Gym was busy, rested longer than planned.",
+]
 
 
 def sets(*specs):
@@ -79,14 +99,20 @@ def x(n, spec):
     return sets(*[spec] * n)
 
 
+def at(set_list, weight=None, time=None, distance=None):
+    """Add weight (lb), time (seconds), and distance (mi) targets to every set in set_list."""
+    return [{**s, "weight": weight, "time": time, "distance": distance} for s in set_list]
+
+
 # name: list of blocks; a block with several (exercise, sets) entries is a superset.
 WORKOUTS = {
     "Push Day": [
-        [("Barbell Bench Press", sets("6-8", "6-8", "6-8", "AMRAP"))],
+        [("Barbell Bench Press", at(sets("6-8", "6-8", "6-8", "AMRAP"), weight=135))],
         [("Incline Dumbbell Press", x(3, "8-12"))],
         [("Overhead Press", sets("6-10", "6-10", "8+"))],
+        [("Lateral Raise", x(3, "12-15"))],
         [("Tricep Pushdown", x(3, "12-15")), ("Face Pull", x(3, "15-20"))],
-        [("Plank", x(3, ""))],
+        [("Plank", at(x(3, ""), time=60))],
     ],
     "Pull Day": [
         [("Pull-Up", sets("5+", "5+", "AMRAP"))],
@@ -102,12 +128,12 @@ WORKOUTS = {
     ],
     "Full Body Circuit": [
         [("Back Squat", x(3, "10")), ("Pull-Up", x(3, "AMRAP")), ("Barbell Bench Press", x(3, "10"))],
-        [("Farmer's Carry", x(3, ""))],
-        [("Jump Rope", x(3, ""))],
+        [("Farmer's Carry", at(x(3, ""), weight=50, time=45))],
+        [("Jump Rope", at(x(3, ""), time=90))],
     ],
     "Conditioning": [
-        [("Treadmill Run", x(1, ""))],
-        [("Rowing Machine", x(2, ""))],
+        [("Treadmill Run", at(x(1, ""), time=25 * 60, distance=3))],
+        [("Rowing Machine", at(x(2, ""), distance=1.5))],
         [("Plank", x(2, "")), ("Hanging Leg Raise", x(2, "AMRAP"))],
     ],
 }
@@ -118,17 +144,41 @@ ROUTINES = {
     "Full Body A / B": ["Full Body Circuit", "Conditioning", "Full Body Circuit"],
 }
 
+# routine name: days one pass takes (Volume Planning scales to weekly by 7 / days); default 7.
+ROUTINE_CYCLE_DAYS = {"Full Body A / B": 5}
+
+# routine name: {muscle: weekly target sets}. A mix of under, met, and over target;
+# Full Body has none, to show the empty state.
+ROUTINE_TARGETS = {
+    "Push / Pull / Legs": {
+        "Chest": 10, "Front Deltoid": 6, "Side Deltoid": 8, "Rear Deltoid": 6, "Biceps": 6, "Triceps": 8, "Upper Back": 12, "Lats": 10,
+        "Abs": 12, "Glutes": 10, "Quads": 12, "Hamstrings": 8, "Calves": 6,
+    },
+}
+
+# preset name: {muscle: weekly minimum sets}; unlisted groups are 0.
+PRESETS = {
+    "Balanced": {
+        "Chest": 10, "Front Deltoid": 4, "Side Deltoid": 8, "Rear Deltoid": 6, "Biceps": 6, "Triceps": 6,
+        "Upper Back": 10, "Lats": 8, "Abs": 6, "Glutes": 8, "Quads": 10, "Hamstrings": 8, "Calves": 6,
+    },
+}
+
 
 # ---- Logged history ----
 
 HISTORY_DAYS = 35
-# weekday (Mon=0) -> workout; Full Body replaces Push on odd weeks' Tuesdays for variety.
-SCHEDULE = {0: "Push Day", 2: "Pull Day", 4: "Leg Day", 5: "Conditioning"}
+# Sessions in the last FULL_HISTORY_DAYS are never skipped, so every demo exercise (each is in
+# at least one weekly workout) has at least two completed recent sessions to examine in its
+# history, even the one left unfinished in the latest session.
+FULL_HISTORY_DAYS = 21
+# weekday (Mon=0) -> workout.
+SCHEDULE = {0: "Push Day", 1: "Full Body Circuit", 2: "Pull Day", 4: "Leg Day", 5: "Conditioning"}
 
 # Starting working weight (lb) and weekly increase; missing = bodyweight/no weight.
 WEIGHTS = {
     "Barbell Bench Press": (135, 5), "Incline Dumbbell Press": (45, 2.5), "Overhead Press": (85, 2.5),
-    "Tricep Pushdown": (40, 2.5), "Barbell Row": (115, 5), "Face Pull": (30, 2.5),
+    "Tricep Pushdown": (40, 2.5), "Lateral Raise": (15, 2.5), "Barbell Row": (115, 5), "Face Pull": (30, 2.5),
     "Dumbbell Curl": (25, 2.5), "Back Squat": (185, 10), "Romanian Deadlift": (155, 5),
     "Walking Lunge": (30, 2.5), "Standing Calf Raise": (90, 5), "Farmer's Carry": (50, 5),
 }
@@ -167,9 +217,8 @@ def seed_history(workouts):
     for offset in range(HISTORY_DAYS):
         d = first + timedelta(days=offset)
         name = SCHEDULE.get(d.weekday())
-        if d.weekday() == 1 and (d.isocalendar().week % 2):
-            name = "Full Body Circuit"
-        if name and rng.random() > 0.12:  # skip the occasional session
+        recent = (today - d).days <= FULL_HISTORY_DAYS
+        if name and (rng.random() > 0.12 or recent):  # skip the occasional older session
             sessions.append((d, name))
 
     for i, (d, name) in enumerate(sessions):
@@ -182,10 +231,14 @@ def seed_history(workouts):
             for log_set in entry.sets:
                 fill_set(log_set, ex_name, week, rng)
                 log_set.completed_at = done_at
+        if i % 3 == 0:
+            entries[0].note = SESSION_NOTES[(i // 3) % len(SESSION_NOTES)]
         if i == len(sessions) - 1:  # leave the latest session unfinished to show a partial day
             for log_set in entries[-1].sets:
                 log_set.completed_at = None
                 log_set.weight = log_set.reps = log_set.duration_seconds = log_set.distance = None
+            # A note with no sets still shows in that exercise's history.
+            entries[-1].note = "Ran out of time. Do these first next session."
     return len(sessions)
 
 
@@ -201,6 +254,10 @@ def remove():
         db.session.delete(entry)
     days = len({entry.date for entry in history})
     db.session.flush()
+
+    presets = db.session.scalars(demo(TargetPreset)).all()
+    for p in presets:
+        db.session.delete(p)
 
     routines = db.session.scalars(demo(Routine)).all()
     for r in routines:
@@ -230,7 +287,7 @@ def remove():
             db.session.delete(ex)
             removed += 1
     db.session.commit()
-    print(f"Removed {len(routines)} demo routines, {len(workouts)} demo workouts, {removed} demo exercises, "
+    print(f"Removed {len(presets)} demo presets, {len(routines)} demo routines, {len(workouts)} demo workouts, {removed} demo exercises, "
           f"and demo history on {days} days.")
     if kept_workouts:
         print("Kept demo workouts still used by non-demo routines:\n  " + "\n  ".join(kept_workouts))
@@ -241,7 +298,8 @@ def remove():
 def seed():
     exercises = {}
     for name, (modes, primary, ancillary) in EXERCISES.items():
-        ex = Exercise(name=DEMO_PREFIX + name, **{f"tracks_{m}": m in modes for m in TRACKING_MODES})
+        ex = Exercise(name=DEMO_PREFIX + name, note=EXERCISE_NOTES.get(name),
+                      **{f"tracks_{m}": m in modes for m in TRACKING_MODES})
         for role, muscles in (("primary", primary), ("ancillary", ancillary)):
             for muscle in muscles:
                 ex.muscles.append(ExerciseMuscle(muscle_group=get_or_create_muscle(muscle), role=role))
@@ -265,14 +323,29 @@ def seed():
         workouts[name] = workout
     db.session.flush()
 
+    muscle_ids = {m.name: m.id for m in db.session.scalars(select(MuscleGroup))}
     for name, workout_names in ROUTINES.items():
-        db.session.add(Routine(name=DEMO_PREFIX + name, workouts=[
-            RoutineWorkout(workout=workouts[w], position=n) for n, w in enumerate(workout_names, start=1)
+        targets = ROUTINE_TARGETS.get(name)
+        db.session.add(Routine(
+            name=DEMO_PREFIX + name,
+            cycle_days=ROUTINE_CYCLE_DAYS.get(name, 7),
+            workouts=[RoutineWorkout(workout=workouts[w], position=n) for n, w in enumerate(workout_names, start=1)],
+            # Like a routine saved in the UI: one row per muscle group, None where there's no target.
+            targets=[
+                RoutineMuscleTarget(muscle_group_id=mg_id, sets=targets.get(mg_name))
+                for mg_name, mg_id in muscle_ids.items()
+            ] if targets else [],
+        ))
+
+    for name, minimums in PRESETS.items():
+        db.session.add(TargetPreset(name=DEMO_PREFIX + name, values=[
+            TargetPresetValue(muscle_group_id=mg_id, sets=minimums.get(mg_name, 0))
+            for mg_name, mg_id in muscle_ids.items()
         ]))
 
     sessions = seed_history(workouts)
     db.session.commit()
-    print(f"Seeded {len(EXERCISES)} demo exercises, {len(WORKOUTS)} demo workouts, {len(ROUTINES)} demo routines, "
+    print(f"Seeded {len(EXERCISES)} demo exercises, {len(WORKOUTS)} demo workouts, {len(ROUTINES)} demo routines, {len(PRESETS)} demo presets, "
           f"and {sessions} days of history.")
 
 
@@ -284,3 +357,4 @@ if __name__ == "__main__":
         remove()
         if not args.remove:
             seed()
+        sync_muscle_groups()  # drop retired groups (e.g. Shoulders) the old demo data was holding onto

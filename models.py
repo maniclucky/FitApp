@@ -6,13 +6,26 @@ db = SQLAlchemy()
 
 TRACKING_MODES = ["weight", "reps", "time", "distance"]
 MUSCLE_ROLES = ["primary", "ancillary"]
+NOTE_MAX_LENGTH = 500  # exercise notes and session notes
+# How much one set counts toward a muscle's volume, by the muscle's role in the exercise.
+MUSCLE_SET_WEIGHTS = {"primary": 1, "ancillary": 0.5}
 
-# Seeded on first run, in rough head-to-toe order (display order follows id).
+# Created at startup if missing. Display order follows this list (head to toe); custom
+# groups come after, in the order they were created.
 DEFAULT_MUSCLE_GROUPS = [
-    "Chest", "Shoulders", "Biceps", "Triceps", "Forearms",
+    "Chest", "Front Deltoid", "Side Deltoid", "Rear Deltoid", "Biceps", "Triceps", "Forearms",
     "Upper Back", "Lats", "Traps", "Lower Back", "Abs", "Obliques",
     "Glutes", "Hip Flexors", "Quads", "Hamstrings", "Adductors", "Abductors", "Calves",
 ]
+# Former defaults, removed at startup once nothing references them ("Shoulders" was split
+# into front/side/rear deltoid). If still in use they stay, shown as custom groups.
+RETIRED_MUSCLE_GROUPS = ["Shoulders"]
+_DEFAULT_ORDER = {name.lower(): i for i, name in enumerate(DEFAULT_MUSCLE_GROUPS)}
+
+
+def muscle_sort_key(muscle_group):
+    """Defaults in DEFAULT_MUSCLE_GROUPS order, then custom groups by creation (id)."""
+    return (_DEFAULT_ORDER.get(muscle_group.name.lower(), len(_DEFAULT_ORDER)), muscle_group.id)
 
 
 def utcnow():
@@ -28,6 +41,22 @@ def group_blocks(slots):
         else:
             blocks.append([slot])
     return blocks
+
+
+def format_duration(seconds):
+    """90 -> '1:30', None -> ''."""
+    if seconds is None:
+        return ""
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def set_target_label(reps_min, reps_max, amrap, weight, seconds, distance):
+    """A planned set in brief, e.g. '8–12 @ 135 lb', '50 lb · 0:45', '25:00 · 3 mi', or ''."""
+    head = rep_target_label(reps_min, reps_max, amrap)
+    if weight is not None:
+        head = f"{head} @ {weight:g} lb" if head else f"{weight:g} lb"
+    parts = [head, format_duration(seconds), f"{distance:g} mi" if distance is not None else ""]
+    return " · ".join(p for p in parts if p)
 
 
 def rep_target_label(lo, hi, amrap):
@@ -51,6 +80,7 @@ class Exercise(db.Model):
     tracks_time = db.Column(db.Boolean, nullable=False, default=False)
     tracks_distance = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    note = db.Column(db.Text)  # shown every time the exercise is used (NOTE_MAX_LENGTH)
 
     muscles = db.relationship(
         "ExerciseMuscle", back_populates="exercise", cascade="all, delete-orphan"
@@ -63,7 +93,7 @@ class Exercise(db.Model):
     def muscle_names(self, role):
         ordered = sorted(
             (em for em in self.muscles if em.role == role),
-            key=lambda em: em.muscle_group_id,
+            key=lambda em: muscle_sort_key(em.muscle_group),
         )
         return [em.muscle_group.name for em in ordered]
 
@@ -88,10 +118,23 @@ class ExerciseMuscle(db.Model):
     muscle_group = db.relationship("MuscleGroup")
 
 
-def seed_muscle_groups():
-    if db.session.query(MuscleGroup.id).first() is None:
-        db.session.add_all(MuscleGroup(name=n) for n in DEFAULT_MUSCLE_GROUPS)
-        db.session.commit()
+def ordered_muscle_groups():
+    return sorted(db.session.scalars(db.select(MuscleGroup)).all(), key=muscle_sort_key)
+
+
+def sync_muscle_groups():
+    """Create missing default muscle groups and drop retired ones that nothing references."""
+    existing = {m.name.lower(): m for m in db.session.scalars(db.select(MuscleGroup)).all()}
+    db.session.add_all(MuscleGroup(name=n) for n in DEFAULT_MUSCLE_GROUPS if n.lower() not in existing)
+    for name in RETIRED_MUSCLE_GROUPS:
+        muscle = existing.get(name.lower())
+        in_use = muscle is not None and any(
+            db.session.query(model).filter_by(muscle_group_id=muscle.id).first() is not None
+            for model in (ExerciseMuscle, RoutineMuscleTarget, TargetPresetValue)
+        )
+        if muscle is not None and not in_use:
+            db.session.delete(muscle)
+    db.session.commit()
 
 
 class Workout(db.Model):
@@ -136,18 +179,32 @@ class WorkoutExercise(db.Model):
 
     @property
     def summary(self):
-        """e.g. '3 × 8–12', '3 sets: 10, 8, AMRAP', or '2 sets'."""
+        """e.g. '3 × 8–12 @ 135 lb', '3 sets: 10, 8, AMRAP', '1 × 25:00 · 3 mi', or '2 sets'."""
         n = len(self.sets)
         labels = [s.label for s in self.sets]
-        if not self.exercise.tracks_reps or not any(labels):
+        if not any(labels):
             return f"{n} set" if n == 1 else f"{n} sets"
         if len(set(labels)) == 1:
             return f"{n} × {labels[0]}"
-        return f"{n} sets: " + ", ".join(label or "—" for label in labels)
+        # Sets differ; if they all share a weight, say it once at the end.
+        weights = {s.weight for s in self.sets}
+        suffix = ""
+        if len(weights) == 1 and None not in weights:
+            suffix = f" @ {weights.pop():g} lb"
+            labels = [
+                set_target_label(s.reps_min, s.reps_max, s.is_amrap, None, s.duration_seconds, s.distance)
+                for s in self.sets
+            ]
+        return f"{n} sets: " + ", ".join(label or "—" for label in labels) + suffix
 
 
 class WorkoutSet(db.Model):
-    """A planned set. Rep range bounds are each optional; AMRAP sets have no bounds."""
+    """A planned set. Every target is optional: a rep range (each bound optional; AMRAP sets have
+    no bounds), weight (lb), time and distance (mi), used for whichever modes the exercise tracks.
+
+    weight/duration_seconds/distance are validated as >= 0 by the app, not the DB: adding CHECKs
+    would make SQLite rebuild the table (see agent-notes/data-model.md).
+    """
 
     id = db.Column(db.Integer, primary_key=True)
     workout_exercise_id = db.Column(db.ForeignKey("workout_exercise.id"), nullable=False)
@@ -155,6 +212,9 @@ class WorkoutSet(db.Model):
     reps_min = db.Column(db.Integer)
     reps_max = db.Column(db.Integer)
     is_amrap = db.Column(db.Boolean, nullable=False, default=False)
+    weight = db.Column(db.Float)
+    duration_seconds = db.Column(db.Integer)
+    distance = db.Column(db.Float)
 
     __table_args__ = (
         db.UniqueConstraint("workout_exercise_id", "position"),
@@ -171,15 +231,22 @@ class WorkoutSet(db.Model):
 
     @property
     def label(self):
-        return rep_target_label(self.reps_min, self.reps_max, self.is_amrap)
+        return set_target_label(
+            self.reps_min, self.reps_max, self.is_amrap, self.weight, self.duration_seconds, self.distance
+        )
 
 
 class Routine(db.Model):
-    """A saved, ordered set of workouts (e.g. Push / Pull / Legs)."""
+    """A saved, ordered set of workouts (e.g. Push / Pull / Legs).
+
+    cycle_days is how many days one pass through the routine takes; Volume Planning scales the
+    routine's sets by 7 / cycle_days to show weekly volume. Validated as 1..365 by the app.
+    """
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100, collation="NOCASE"), nullable=False, unique=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    cycle_days = db.Column(db.Integer, nullable=False, default=7, server_default="7")
 
     workouts = db.relationship(
         "RoutineWorkout",
@@ -187,6 +254,7 @@ class Routine(db.Model):
         order_by="RoutineWorkout.position",
         cascade="all, delete-orphan",
     )
+    targets = db.relationship("RoutineMuscleTarget", cascade="all, delete-orphan")
 
 
 class RoutineWorkout(db.Model):
@@ -203,6 +271,45 @@ class RoutineWorkout(db.Model):
     workout = db.relationship("Workout")
 
 
+class TargetPreset(db.Model):
+    """A named set of weekly minimum sets per muscle group that the routine planner can apply.
+
+    Imported from a spreadsheet (scripts/import_presets.py) or made in the app (/presets/new).
+    A muscle group with no value row counts as 0.
+    """
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100, collation="NOCASE"), nullable=False, unique=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+
+    values = db.relationship("TargetPresetValue", cascade="all, delete-orphan")
+
+    def sets_by_muscle_id(self):
+        return {v.muscle_group_id: v.sets for v in self.values}
+
+
+class TargetPresetValue(db.Model):
+    preset_id = db.Column(db.ForeignKey("target_preset.id"), primary_key=True)
+    muscle_group_id = db.Column(db.ForeignKey("muscle_group.id"), primary_key=True)
+    sets = db.Column(db.Float, nullable=False)
+
+    __table_args__ = (db.CheckConstraint("sets >= 0", name="ck_target_preset_value_sets"),)
+
+
+class RoutineMuscleTarget(db.Model):
+    """How many sets per pass through the routine the user wants for a muscle group.
+
+    Saving a routine writes a row for every muscle group; sets is NULL when the user left it
+    blank. Targets are weekly minimums; presets (TargetPreset) fill them in the planner.
+    """
+
+    routine_id = db.Column(db.ForeignKey("routine.id"), primary_key=True)
+    muscle_group_id = db.Column(db.ForeignKey("muscle_group.id"), primary_key=True)
+    sets = db.Column(db.Float)
+
+    __table_args__ = (db.CheckConstraint("sets IS NULL OR sets >= 0", name="ck_routine_muscle_target_sets"),)
+
+
 class LogExercise(db.Model):
     """An exercise performed (or planned) on a calendar day.
 
@@ -217,6 +324,7 @@ class LogExercise(db.Model):
     exercise_id = db.Column(db.ForeignKey("exercise.id"), nullable=False)
     workout_id = db.Column(db.ForeignKey("workout.id"))  # informational: which workout it was loaded from
     superset_group = db.Column(db.Integer)
+    note = db.Column(db.Text)  # this session only; shown in the exercise's history (NOTE_MAX_LENGTH)
 
     __table_args__ = (db.UniqueConstraint("date", "position"),)
 
@@ -239,6 +347,9 @@ class LogSet(db.Model):
     target_reps_min = db.Column(db.Integer)
     target_reps_max = db.Column(db.Integer)
     target_amrap = db.Column(db.Boolean, nullable=False, default=False)
+    target_weight = db.Column(db.Float)
+    target_duration_seconds = db.Column(db.Integer)
+    target_distance = db.Column(db.Float)
     weight = db.Column(db.Float)            # lb
     reps = db.Column(db.Integer)
     duration_seconds = db.Column(db.Integer)

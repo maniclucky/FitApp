@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if preset else 'New' }} preset · FitApp{% endblock %}
+{% block screen_class %}{% endblock %}
+{% block tabbar %}{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <a class="back" href="{{ back }}" aria-label="Back">&larr;</a>
+  <h1>{{ 'Edit preset' if preset else 'New preset' }}</h1>
+</header>
+
+{% if errors %}
+  <div class="errors" role="alert">
+    <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  </div>
+{% endif %}
+
+<form method="post" class="form" novalidate>
+  <div class="field">
+    <label for="name">Name</label>
+    <input id="name" name="name" type="text" maxlength="100" required autocomplete="off"
+           placeholder="e.g. Hypertrophy" value="{{ name }}">
+  </div>
+
+  <fieldset class="field">
+    <legend>Weekly minimum sets</legend>
+    <p class="hint">Leave a group blank for 0.</p>
+    <ul class="preset-values">
+      {% for mg in muscle_groups %}
+        <li>
+          <label for="sets-{{ mg.id }}">{{ mg.name }}</label>
+          <input type="text" inputmode="decimal" autocomplete="off" maxlength="6"
+                 class="{% if mg.id in bad %}invalid{% endif %}"
+                 id="sets-{{ mg.id }}" name="sets-{{ mg.id }}" value="{{ values.get(mg.id, '') }}" placeholder="0">
+        </li>
+      {% endfor %}
+    </ul>
+  </fieldset>
+
+  <input type="hidden" name="next" value="{{ back }}">
+  <button type="submit" class="button block">Save preset</button>
+</form>
+
+{% if preset %}
+  <button type="button" class="button danger block delete-trigger"
+          data-confirm-delete="{{ url_for('delete_preset', preset_id=preset.id, next=back) }}" data-name="{{ preset.name }}"
+          data-detail="Removes the preset. Routines that used it keep their targets.">Delete preset</button>
+  {% include "_confirm_delete.html" %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='confirm_delete.js') }}"></script>
+{% endblock %}

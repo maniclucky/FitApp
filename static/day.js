@@ -1,6 +1,6 @@
 // Day view: autosaving set fields, completion checks, add/remove sets, the "+ Add" sheet
-// (routines/workouts/exercises), long-press reordering, the history calendar, and swipe
-// (or arrow-key) navigation.
+// (routines/workouts/exercises), per-exercise history and notes, long-press reordering, the history
+// calendar, and swipe (or arrow-key) navigation.
 // Field edits save in place; structural changes reload the page (scroll is kept).
 (function () {
   const day = document.getElementById("day");
@@ -33,19 +33,7 @@
 
   // ---------- set fields ----------
 
-  // Time accepts "m:ss" or microwave-style digits: "130" -> 1:30, "45" -> 0:45.
-  function parseTime(text) {
-    const t = text.trim();
-    if (!t) return null;
-    if (t.includes(":")) {
-      const m = /^(\d*):(\d{1,2})$/.exec(t);
-      return m ? Number(m[1] || 0) * 60 + Number(m[2]) : NaN;
-    }
-    if (!/^\d+$/.test(t)) return NaN;
-    const padded = t.padStart(3, "0");
-    return Number(padded.slice(0, -2)) * 60 + Number(padded.slice(-2));
-  }
-  const fmtTime = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+  const { parse: parseTime, format: fmtTime } = window.FitTime;
 
   function readField(input) {
     const raw = input.value.trim();
@@ -316,6 +304,70 @@
       }
     });
   }
+
+  // ---------- exercise history ----------
+  // The History button on each card opens a sheet listing that exercise's sessions
+  // before this day (server-rendered: templates/_exercise_history.html).
+
+  const historySheet = document.getElementById("history-sheet");
+  const historyBody = document.getElementById("history-body");
+  let historyRequest = 0;
+  wireSheet(historySheet);
+
+  day.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-history]");
+    if (!btn) return;
+    const request = ++historyRequest;
+    document.getElementById("history-sheet-title").textContent = btn.dataset.name;
+    historyBody.innerHTML = '<p class="empty small">Loading…</p>';
+    historySheet.showModal();
+    try {
+      const res = await fetch(`/exercises/${btn.dataset.history}/history?before=${day.dataset.date}`);
+      if (!res.ok) throw new Error();
+      const html = await res.text();
+      if (request === historyRequest) historyBody.innerHTML = html;
+    } catch {
+      if (request === historyRequest) historyBody.innerHTML = '<p class="empty small">Couldn’t load the history. Please try again.</p>';
+    }
+  });
+
+  // ---------- notes ----------
+  // Notes opens a sheet with the exercise's "every time" note (stored on the exercise, so
+  // it shows on every card for it) and this entry's session note (kept in its history).
+
+  const notesSheet = document.getElementById("notes-sheet");
+  const notesForm = document.getElementById("notes-form");
+  const exerciseNote = document.getElementById("exercise-note");
+  const sessionNote = document.getElementById("session-note");
+  let notesFor = null;
+  wireSheet(notesSheet);
+
+  day.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-notes]");
+    if (!btn) return;
+    notesFor = btn.dataset.notes;
+    document.getElementById("notes-sheet-title").textContent = btn.dataset.name;
+    exerciseNote.value = btn.dataset.exerciseNote;
+    sessionNote.value = btn.dataset.sessionNote;
+    notesSheet.showModal();
+    (btn.dataset.sessionNote || !btn.dataset.exerciseNote ? sessionNote : exerciseNote).focus();
+  });
+
+  notesForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const submit = notesForm.querySelector("[type=submit]");
+    submit.disabled = true;
+    try {
+      await api("PATCH", `/api/log-exercises/${notesFor}/notes`, {
+        exercise_note: exerciseNote.value,
+        session_note: sessionNote.value,
+      });
+      location.reload();
+    } catch (err) {
+      submit.disabled = false;
+      toast(err.message);
+    }
+  });
 
   // ---------- long-press to reorder ----------
   // Press and hold an exercise (not on an input or button) to lift its block; a superset

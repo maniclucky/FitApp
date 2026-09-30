@@ -1,13 +1,18 @@
 import json
 import math
 import os
+import re
 from datetime import date, timedelta
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
-from sqlalchemy import func, select, update
+from alembic.runtime.migration import MigrationContext
+from flask_migrate import Migrate, stamp, upgrade
+from sqlalchemy import func, inspect, select, update
 
 from models import (
     MUSCLE_ROLES,
+    MUSCLE_SET_WEIGHTS,
+    NOTE_MAX_LENGTH,
     TRACKING_MODES,
     Exercise,
     ExerciseMuscle,
@@ -15,25 +20,48 @@ from models import (
     LogSet,
     MuscleGroup,
     Routine,
+    RoutineMuscleTarget,
     RoutineWorkout,
+    TargetPreset,
+    TargetPresetValue,
     Workout,
     WorkoutExercise,
     WorkoutSet,
     db,
+    format_duration,
     group_blocks,
-    seed_muscle_groups,
+    ordered_muscle_groups,
+    sync_muscle_groups,
     utcnow,
 )
 
 app = Flask(__name__)
-# Relative SQLite paths resolve to Flask's instance/ folder.
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///fitapp.db"
+# Relative SQLite paths resolve to Flask's instance/ folder. FITAPP_DATABASE_URI points the app
+# at another database (tests, generating migrations).
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("FITAPP_DATABASE_URI", "sqlite:///fitapp.db")
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-not-secret")
 db.init_app(app)
+# Batch mode: SQLite can't ALTER most things in place, so Alembic copies the table instead.
+migrate = Migrate(app, db, render_as_batch=True)
 
-with app.app_context():
-    db.create_all()
-    seed_muscle_groups()
+# The first migration; its schema is what db.create_all() built before migrations existed.
+BASELINE_REVISION = "0001"
+
+
+def init_db():
+    """Bring the database schema up to date, then sync the default muscle groups."""
+    with db.engine.connect() as conn:
+        current = MigrationContext.configure(conn).get_current_revision()
+    if current is None and set(inspect(db.engine).get_table_names()) - {"alembic_version"}:
+        stamp(revision=BASELINE_REVISION)  # a pre-migrations database already has the baseline schema
+    upgrade()
+    sync_muscle_groups()
+
+
+# FITAPP_SKIP_INIT=1 is for `flask db migrate`, which must see the database untouched.
+if not os.environ.get("FITAPP_SKIP_INIT"):
+    with app.app_context():
+        init_db()
 
 
 def clean_name(value, max_len):
@@ -50,6 +78,18 @@ def clean_muscles(values):
             seen.add(name.lower())
             result.append(name)
     return result
+
+
+def clean_note(value, label):
+    """Trimmed note text with Unix newlines, or None if blank. Raises ValueError if too long."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be text.")
+    text = value.replace("\r\n", "\n").strip()
+    if len(text) > NOTE_MAX_LENGTH:
+        raise ValueError(f"{label} can be at most {NOTE_MAX_LENGTH} characters.")
+    return text or None
 
 
 def get_or_create_muscle(name):
@@ -108,9 +148,10 @@ def exercise_form(exercise_id=None):
             "name": exercise.name,
             "tracking": exercise.tracking_modes,
             **{role: exercise.muscle_names(role) for role in MUSCLE_ROLES},
+            "note": exercise.note or "",
         }
     else:
-        form = {"name": "", "tracking": [], "primary": [], "ancillary": []}
+        form = {"name": "", "tracking": [], "primary": [], "ancillary": [], "note": ""}
 
     if request.method == "POST":
         form["name"] = clean_name(request.form.get("name", ""), 100)
@@ -133,6 +174,11 @@ def exercise_form(exercise_id=None):
             errors.append("Pick at least one tracking mode.")
         if not form["primary"]:
             errors.append("Pick at least one primary muscle group.")
+        form["note"] = request.form.get("note", "")
+        try:
+            note = clean_note(form["note"], "The note")
+        except ValueError as e:
+            errors.append(str(e))
 
         if not errors:
             if exercise:
@@ -144,6 +190,7 @@ def exercise_form(exercise_id=None):
                 exercise = Exercise()
                 db.session.add(exercise)
             exercise.name = form["name"]
+            exercise.note = note
             for m in TRACKING_MODES:
                 setattr(exercise, f"tracks_{m}", m in form["tracking"])
             for role in MUSCLE_ROLES:
@@ -151,21 +198,27 @@ def exercise_form(exercise_id=None):
                     exercise.muscles.append(
                         ExerciseMuscle(muscle_group=get_or_create_muscle(name), role=role)
                     )
-            if exercise.id is not None and not exercise.tracks_reps:
-                # Rep targets are meaningless once reps aren't tracked; don't leave stale ones in workouts.
+            # Targets for a mode the exercise no longer tracks are meaningless; clear them from workouts.
+            stale = {}
+            if not exercise.tracks_reps:
+                stale.update(reps_min=None, reps_max=None, is_amrap=False)
+            for field, mode in SET_TARGETS.values():
+                if not getattr(exercise, f"tracks_{mode}"):
+                    stale[field] = None
+            if exercise.id is not None and stale:
                 db.session.execute(
                     update(WorkoutSet)
                     .where(WorkoutSet.workout_exercise_id.in_(
                         select(WorkoutExercise.id).where(WorkoutExercise.exercise_id == exercise.id)
                     ))
-                    .values(reps_min=None, reps_max=None, is_amrap=False)
+                    .values(**stale)
                 )
             db.session.commit()
             flash(f"Saved \u201c{exercise.name}\u201d.")
-            return redirect(url_for("exercises"))
+            return redirect(url_for("exercise_detail", exercise_id=exercise.id))
 
     # Known muscle groups, plus any custom ones from a rejected submission.
-    muscles = list(db.session.scalars(select(MuscleGroup.name).order_by(MuscleGroup.id)))
+    muscles = [m.name for m in ordered_muscle_groups()]
     known = {m.lower() for m in muscles}
     for name in form["primary"] + form["ancillary"]:
         if name.lower() not in known:
@@ -181,7 +234,98 @@ def exercise_form(exercise_id=None):
         muscles=muscles,
         tracking_modes=TRACKING_MODES,
         selected={role: {m.lower() for m in form[role]} for role in MUSCLE_ROLES},
+        note_max=NOTE_MAX_LENGTH,
     ), (400 if errors else 200)
+
+
+# ----- Exercise history -----
+
+HISTORY_LIMIT = 60  # most recent dates shown
+
+
+def exercise_history(exercise, before=None):
+    """Past sessions of an exercise, newest first: [{"date", "workouts", "sets", "notes"}].
+
+    A session is one date. Its sets are the ones actually recorded there (completed, or
+    with any value entered), in order across that day's entries; notes are that day's
+    session notes. Dates with no recorded sets and no note are skipped. `before` limits
+    it to dates earlier than that day.
+    """
+    query = (
+        select(LogExercise)
+        .where(LogExercise.exercise_id == exercise.id)
+        .order_by(LogExercise.date.desc(), LogExercise.position)
+    )
+    if before is not None:
+        query = query.where(LogExercise.date < before)
+    sessions = []
+    for lx in db.session.scalars(query):
+        recorded = [
+            s for s in lx.sets
+            if s.completed_at is not None
+            or any(v is not None for v in (s.weight, s.reps, s.duration_seconds, s.distance))
+        ]
+        if not recorded and not lx.note:
+            continue
+        if not sessions or sessions[-1]["date"] != lx.date:
+            if len(sessions) == HISTORY_LIMIT:
+                break
+            sessions.append({"date": lx.date, "workouts": [], "sets": [], "notes": []})
+        session = sessions[-1]
+        if lx.note:
+            session["notes"].append(lx.note)
+        if lx.workout and lx.workout.name not in session["workouts"]:
+            session["workouts"].append(lx.workout.name)
+        session["sets"].extend(recorded)
+    return sessions
+
+
+@app.template_filter("set_result")
+def set_result(log_set, exercise):
+    """What was done in a set, for the exercise's current modes: '135 lb × 8', '50 lb · 0:45', '25:00 · 3 mi'."""
+    modes = exercise.tracking_modes
+    head = ""
+    if "weight" in modes and log_set.weight is not None:
+        head = f"{log_set.weight:g} lb"
+    if "reps" in modes and log_set.reps is not None:
+        head = f"{head} × {log_set.reps}" if head else f"{log_set.reps} reps"
+    parts = [
+        head,
+        format_duration(log_set.duration_seconds) if "time" in modes else "",
+        f"{log_set.distance:g} mi" if "distance" in modes and log_set.distance is not None else "",
+    ]
+    return " · ".join(p for p in parts if p) or "—"
+
+
+@app.template_filter("history_date")
+def history_date(d):
+    """'Tue, Sep 29', with the year added when it isn't this year."""
+    label = f"{d:%a}, {d:%b} {d.day}"
+    return label if d.year == date.today().year else f"{label}, {d.year}"
+
+
+@app.route("/exercises/<int:exercise_id>")
+def exercise_detail(exercise_id):
+    exercise = db.get_or_404(Exercise, exercise_id)
+    return render_template(
+        "exercise_detail.html",
+        exercise=exercise,
+        sessions=exercise_history(exercise),
+        history_limit=HISTORY_LIMIT,
+    )
+
+
+@app.get("/exercises/<int:exercise_id>/history")
+def exercise_history_fragment(exercise_id):
+    """The history list alone (for the day view's sheet). ?before=YYYY-MM-DD skips that day and later."""
+    exercise = db.get_or_404(Exercise, exercise_id)
+    before = parse_day(request.args["before"]) if request.args.get("before") else None
+    return render_template(
+        "_exercise_history.html",
+        exercise=exercise,
+        sessions=exercise_history(exercise, before),
+        history_limit=HISTORY_LIMIT,
+    )
 
 
 @app.route("/exercises/<int:exercise_id>/delete", methods=["POST"])
@@ -227,6 +371,48 @@ def parse_reps(value):
     return n
 
 
+def parse_duration(value, label):
+    """Seconds from an int, 'm:ss', or microwave-style digits ('130' -> 90); blank -> None.
+
+    Mirrors parseTime in static/time_format.js. Raises ValueError with a user message.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        seconds = value
+    elif isinstance(value, str) and re.fullmatch(r"\d*:\d{1,2}", value.strip()):
+        minutes, secs = value.strip().split(":")
+        seconds = int(minutes or 0) * 60 + int(secs)
+    elif isinstance(value, str) and value.strip().isdigit():
+        padded = value.strip().zfill(3)
+        seconds = int(padded[:-2]) * 60 + int(padded[-2:])
+    else:
+        raise ValueError(f"{label}: time should look like 1:30.")
+    if not 0 <= seconds <= 86_400:
+        raise ValueError(f"{label}: time must be at most 24 hours.")
+    return seconds
+
+
+# Planned-set targets other than reps: builder JSON key -> (WorkoutSet/LogSet field, tracking mode).
+SET_TARGETS = {
+    "weight": ("weight", "weight"),
+    "time": ("duration_seconds", "time"),
+    "distance": ("distance", "distance"),
+}
+
+
+def parse_set_target(key, value, label):
+    if key == "time":
+        return parse_duration(value, label)
+    if isinstance(value, str):
+        value = value.strip()
+    name, maximum = ("Weight", 10_000) if key == "weight" else ("Distance", 1_000)
+    try:
+        return parse_log_value(value, name, integer=False, maximum=maximum)
+    except ValueError as e:
+        raise ValueError(f"{label}: {str(e)[0].lower()}{str(e)[1:]}") from None
+
+
 def parse_workout_items(raw, exercises_by_id):
     """Validate the builder's JSON payload.
 
@@ -263,7 +449,15 @@ def parse_workout_items(raw, exercises_by_id):
                     lo = hi = None
                 if lo is not None and hi is not None and lo > hi:
                     errors.append(f"{exercise.name}, set {n}: minimum reps can\u2019t exceed maximum.")
-            sets.append({"min": lo, "max": hi, "amrap": amrap})
+            targets = {}
+            for key, (_, mode) in SET_TARGETS.items():
+                targets[key] = None
+                if getattr(exercise, f"tracks_{mode}"):
+                    try:
+                        targets[key] = parse_set_target(key, raw_set.get(key), f"{exercise.name}, set {n}")
+                    except ValueError as e:
+                        errors.append(str(e))
+            sets.append({"min": lo, "max": hi, "amrap": amrap, **targets})
         if not sets:
             errors.append(f"{exercise.name} needs at least one set.")
         items.append({
@@ -288,7 +482,11 @@ def workout_to_items(workout):
                 and i + 1 < len(slots)
                 and slots[i + 1].superset_group == wx.superset_group
             ),
-            "sets": [{"min": s.reps_min, "max": s.reps_max, "amrap": s.is_amrap} for s in wx.sets],
+            "sets": [
+                {"min": s.reps_min, "max": s.reps_max, "amrap": s.is_amrap,
+                 **{key: getattr(s, field) for key, (field, _) in SET_TARGETS.items()}}
+                for s in wx.sets
+            ],
         }
         for i, wx in enumerate(slots)
     ]
@@ -308,7 +506,10 @@ def build_workout_exercises(items):
             position=position,
             superset_group=group,
             sets=[
-                WorkoutSet(position=n, reps_min=s["min"], reps_max=s["max"], is_amrap=s["amrap"])
+                WorkoutSet(
+                    position=n, reps_min=s["min"], reps_max=s["max"], is_amrap=s["amrap"],
+                    **{field: s.get(key) for key, (field, _) in SET_TARGETS.items()},
+                )
                 for n, s in enumerate(item["sets"], start=1)
             ],
         ))
@@ -335,7 +536,7 @@ def exercise_picker_data(exercises):
         for e in exercises
     ]
     used = {m.lower() for o in options for role in MUSCLE_ROLES for m in o[role]}
-    muscles = [m for m in db.session.scalars(select(MuscleGroup.name).order_by(MuscleGroup.id)) if m.lower() in used]
+    muscles = [m.name for m in ordered_muscle_groups() if m.name.lower() in used]
     return options, muscles
 
 
@@ -430,17 +631,31 @@ def parse_routine_workout_ids(raw, workouts_by_id):
     return ids, errors
 
 
+def workout_muscle_sets(workout):
+    """{muscle name: {"primary": sets, "ancillary": sets}} for one workout (raw set counts)."""
+    totals = {}
+    for wx in workout.exercises:
+        for em in wx.exercise.muscles:
+            counts = totals.setdefault(em.muscle_group.name, dict.fromkeys(MUSCLE_ROLES, 0))
+            counts[em.role] += len(wx.sets)
+    return totals
+
+
 @app.route("/routines/new", methods=["GET", "POST"])
 @app.route("/routines/<int:routine_id>/edit", methods=["GET", "POST"])
 def routine_form(routine_id=None):
     routine = db.get_or_404(Routine, routine_id) if routine_id is not None else None
     all_workouts = db.session.scalars(select(Workout).order_by(Workout.name)).all()
     workouts_by_id = {w.id: w for w in all_workouts}
-    errors = []
+    muscle_groups = ordered_muscle_groups()
+    errors, bad_targets = [], set()
     if routine:
         name, workout_ids = routine.name, [rw.workout_id for rw in routine.workouts]
     else:
         name, workout_ids = "", []
+    # Values shown in the target inputs, as text so a rejected entry is re-shown as typed.
+    targets = {t.muscle_group_id: format_number(t.sets) for t in routine.targets} if routine else {}
+    cycle_days = str(routine.cycle_days) if routine else "7"
 
     if request.method == "POST":
         name = clean_name(request.form.get("name", ""), 100)
@@ -455,17 +670,37 @@ def routine_form(routine_id=None):
         if not workout_ids and not errors:
             errors.append("Add at least one workout.")
 
+        cycle_days = request.form.get("cycle_days", "").strip()
+        if not cycle_days.isdigit() or not 1 <= int(cycle_days) <= 365:
+            errors.append("Days to complete the routine must be a whole number from 1 to 365.")
+
+        parsed_targets = {}
+        for mg in muscle_groups:
+            raw = request.form.get(f"target-{mg.id}", "").strip()
+            targets[mg.id] = raw
+            try:
+                parsed_targets[mg.id] = parse_log_value(raw, f"{mg.name} target", integer=False, maximum=999)
+            except ValueError as e:
+                errors.append(str(e))
+                bad_targets.add(mg.id)
+
         if not errors:
             if routine:
                 routine.name = name
-                # Flush the deletes first so new rows don't collide on the (routine, position) unique key.
+                routine.cycle_days = int(cycle_days)
+                # Flush the deletes first so new rows don't collide on the unique/primary keys.
                 routine.workouts.clear()
+                routine.targets.clear()
                 db.session.flush()
             else:
-                routine = Routine(name=name)
+                routine = Routine(name=name, cycle_days=int(cycle_days))
                 db.session.add(routine)
             routine.workouts.extend(
                 RoutineWorkout(workout_id=wid, position=n) for n, wid in enumerate(workout_ids, start=1)
+            )
+            # One row per muscle, blanks included, so a cleared target stays cleared.
+            routine.targets.extend(
+                RoutineMuscleTarget(muscle_group_id=mg_id, sets=sets) for mg_id, sets in parsed_targets.items()
             )
             db.session.commit()
             flash(f"Saved \u201c{routine.name}\u201d.")
@@ -478,9 +713,78 @@ def routine_form(routine_id=None):
         workout_ids=workout_ids,
         errors=errors,
         workout_options=[
-            {"id": w.id, "name": w.name, "count": len(w.exercises)} for w in all_workouts
+            {"id": w.id, "name": w.name, "count": len(w.exercises), "muscles": workout_muscle_sets(w)}
+            for w in all_workouts
         ],
+        muscle_groups=muscle_groups,
+        targets=targets,
+        bad_targets=bad_targets,
+        cycle_days=cycle_days,
+        presets=[
+            {"id": p.id, "name": p.name, "sets": {str(k): v for k, v in p.sets_by_muscle_id().items()}}
+            for p in db.session.scalars(select(TargetPreset).order_by(TargetPreset.name))
+        ],
+        muscle_set_weights=MUSCLE_SET_WEIGHTS,
     ), (400 if errors else 200)
+
+
+# ----- Target presets (weekly minimum sets per muscle group) -----
+
+@app.route("/presets/new", methods=["GET", "POST"])
+@app.route("/presets/<int:preset_id>/edit", methods=["GET", "POST"])
+def preset_form(preset_id=None):
+    preset = db.get_or_404(TargetPreset, preset_id) if preset_id is not None else None
+    back = safe_next(request.values.get("next")) or url_for("routines")
+    muscle_groups = ordered_muscle_groups()
+    errors, bad = [], set()
+    name = preset.name if preset else ""
+    values = {k: format_number(v) for k, v in preset.sets_by_muscle_id().items()} if preset else {}
+
+    if request.method == "POST":
+        name = clean_name(request.form.get("name", ""), 100)
+        duplicate = select(TargetPreset.id).where(TargetPreset.name == name)
+        if preset:
+            duplicate = duplicate.where(TargetPreset.id != preset.id)
+        if not name:
+            errors.append("Name is required.")
+        elif db.session.scalar(duplicate):
+            errors.append(f"A preset named \u201c{name}\u201d already exists.")
+        parsed = {}
+        for mg in muscle_groups:
+            raw = request.form.get(f"sets-{mg.id}", "").strip()
+            values[mg.id] = raw
+            try:
+                parsed[mg.id] = parse_log_value(raw, f"{mg.name} minimum", integer=False, maximum=999) or 0
+            except ValueError as e:
+                errors.append(str(e))
+                bad.add(mg.id)
+        if not errors:
+            if preset:
+                preset.name = name
+                preset.values.clear()
+                db.session.flush()
+            else:
+                preset = TargetPreset(name=name)
+                db.session.add(preset)
+            # Blank means 0; store every group so the preset is complete.
+            preset.values.extend(TargetPresetValue(muscle_group_id=k, sets=v) for k, v in parsed.items())
+            db.session.commit()
+            flash(f"Saved preset \u201c{preset.name}\u201d.")
+            return redirect(back)
+
+    return render_template(
+        "preset_form.html", preset=preset, name=name, values=values, bad=bad, errors=errors,
+        muscle_groups=muscle_groups, back=back,
+    ), (400 if errors else 200)
+
+
+@app.post("/presets/<int:preset_id>/delete")
+def delete_preset(preset_id):
+    preset = db.get_or_404(TargetPreset, preset_id)
+    db.session.delete(preset)
+    db.session.commit()
+    flash(f"Deleted preset \u201c{preset.name}\u201d.")
+    return redirect(safe_next(request.values.get("next")) or url_for("routines"))
 
 
 @app.route("/routines/<int:routine_id>/delete", methods=["POST"])
@@ -511,11 +815,7 @@ def format_number(value):
     return f"{value:g}" if isinstance(value, float) else str(value)
 
 
-@app.template_filter("mmss")
-def format_duration(seconds):
-    if seconds is None:
-        return ""
-    return f"{seconds // 60}:{seconds % 60:02d}"
+app.add_template_filter(format_duration, "mmss")
 
 
 def parse_day(value):
@@ -574,6 +874,7 @@ def day(day_str=None):
         blocks=blocks,
         rest_after=rest_after_sets(blocks),
         fields=DAY_FIELDS,
+        note_max=NOTE_MAX_LENGTH,
         routines=[
             (r, routine_next_index(r, d))
             for r in db.session.scalars(select(Routine).order_by(Routine.name)) if r.workouts
@@ -630,7 +931,8 @@ def add_workout_to_day(d, workout):
             superset_group=group,
             sets=[
                 LogSet(position=n, target_reps_min=ws.reps_min, target_reps_max=ws.reps_max,
-                       target_amrap=ws.is_amrap)
+                       target_amrap=ws.is_amrap, target_weight=ws.weight,
+                       target_duration_seconds=ws.duration_seconds, target_distance=ws.distance)
                 for n, ws in enumerate(wx.sets, start=1)
             ],
         )
@@ -801,6 +1103,9 @@ def api_add_log_set(lx_id):
         target_reps_min=last.target_reps_min if last else None,
         target_reps_max=last.target_reps_max if last else None,
         target_amrap=last.target_amrap if last else False,
+        target_weight=last.target_weight if last else None,
+        target_duration_seconds=last.target_duration_seconds if last else None,
+        target_distance=last.target_distance if last else None,
     )
     lx.sets.append(log_set)
     db.session.commit()
@@ -818,6 +1123,26 @@ def api_remove_last_log_set(lx_id):
     db.session.delete(last)
     db.session.commit()
     return "", 204
+
+
+@app.patch("/api/log-exercises/<int:lx_id>/notes")
+def api_update_notes(lx_id):
+    """Set a logged exercise's notes: {"exercise_note": ..., "session_note": ...} (either key optional).
+
+    exercise_note is stored on the exercise itself, so it shows everywhere it's used;
+    session_note belongs to this day's entry. Blank clears a note.
+    """
+    lx = db.get_or_404(LogExercise, lx_id)
+    data = json_body()
+    try:
+        if "exercise_note" in data:
+            lx.exercise.note = clean_note(data["exercise_note"], "The exercise note")
+        if "session_note" in data:
+            lx.note = clean_note(data["session_note"], "The session note")
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    db.session.commit()
+    return jsonify(exercise_note=lx.exercise.note, session_note=lx.note)
 
 
 @app.post("/log-exercises/<int:lx_id>/delete")
@@ -840,6 +1165,102 @@ def clear_day(day_str):
     if entries:
         flash(f"Removed {len(entries)} exercise{'' if len(entries) == 1 else 's'} from this day.")
     return redirect(url_for("day", day_str=d.isoformat()))
+
+
+# ----- Progress -----
+
+PROGRESS_MAX_DAYS = 366
+
+
+def month_before(d):
+    """The same day one calendar month earlier, clamped to that month's length (Mar 31 -> Feb 28)."""
+    year, month = (d.year, d.month - 1) if d.month > 1 else (d.year - 1, 12)
+    last_day = (date(year + month // 12, month % 12 + 1, 1) - timedelta(days=1)).day
+    return date(year, month, min(d.day, last_day))
+
+
+def progress_range(args, today):
+    """(start, end, error) from ?start=&end= (YYYY-MM-DD). Defaults to the past month, ending today."""
+    try:
+        end = date.fromisoformat(args["end"]) if args.get("end") else today
+        start = date.fromisoformat(args["start"]) if args.get("start") else month_before(end)
+    except ValueError:
+        return month_before(today), today, "Dates should look like 2026-09-30."
+    if start > end:
+        return start, end, "The start date is after the end date."
+    if (end - start).days + 1 > PROGRESS_MAX_DAYS:
+        return start, end, f"Pick a range of at most {PROGRESS_MAX_DAYS} days."
+    return start, end, None
+
+
+@app.route("/progress")
+def progress():
+    """Daily volume (sum of weight × reps) and sets per muscle group over a date range.
+
+    Only completed sets count. Muscle sets use the same weighting as routine volume
+    planning (MUSCLE_SET_WEIGHTS: primary 1, ancillary 0.5) with each exercise's current
+    muscle groups; per week = total × 7 / days in range.
+    """
+    today = date.today()
+    start, end, error = progress_range(request.args, today)
+    if error:
+        flash(error, "error")
+        start, end = month_before(today), today
+    n_days = (end - start).days + 1
+    in_range = (LogExercise.date >= start, LogExercise.date <= end, LogSet.completed_at.is_not(None))
+
+    volume_by_day = dict(db.session.execute(
+        select(LogExercise.date, func.sum(LogSet.weight * LogSet.reps))
+        .join(LogSet)
+        .where(*in_range, LogSet.weight.is_not(None), LogSet.reps.is_not(None))
+        .group_by(LogExercise.date)
+    ).all())
+    days = [
+        {"date": (d := start + timedelta(days=i)).isoformat(), "volume": round(volume_by_day.get(d) or 0, 2)}
+        for i in range(n_days)
+    ]
+
+    sets_by_exercise = dict(db.session.execute(
+        select(LogExercise.exercise_id, func.count(LogSet.id)).join(LogSet).where(*in_range)
+        .group_by(LogExercise.exercise_id)
+    ).all())
+    muscle_sets = {}
+    for exercise in db.session.scalars(select(Exercise).where(Exercise.id.in_(sets_by_exercise))):
+        for em in exercise.muscles:
+            muscle_sets[em.muscle_group_id] = (
+                muscle_sets.get(em.muscle_group_id, 0) + sets_by_exercise[exercise.id] * MUSCLE_SET_WEIGHTS[em.role]
+            )
+    muscles = [
+        {"name": mg.name, "total": muscle_sets.get(mg.id, 0), "per_week": muscle_sets.get(mg.id, 0) * 7 / n_days}
+        for mg in ordered_muscle_groups()
+    ]
+
+    return render_template(
+        "progress.html",
+        start=start, end=end, today=today, n_days=n_days, days=days, muscles=muscles,
+        total_volume=sum(d["volume"] for d in days),
+        training_days=sum(1 for d in days if d["volume"]),
+        completed_sets=sum(sets_by_exercise.values()),
+        presets=[("Week", today - timedelta(days=6)), ("Month", month_before(today)),
+                 ("3 months", month_before(month_before(month_before(today))))],
+    )
+
+
+@app.template_filter("trunc1")
+def truncate_one_decimal(value):
+    """Cut off (not round) to one decimal: 8.1666 -> '8.1', 8.0 -> '8'."""
+    cut = math.floor(value * 10 + 1e-9) / 10
+    return f"{cut:g}"
+
+
+@app.template_filter("volume")
+def format_volume(value):
+    """Thousands-separated, cut off at one decimal: 12345.67 -> '12,345.6', 1200.0 -> '1,200'."""
+    cut = math.floor(value * 10 + 1e-9) / 10
+    return f"{cut:,.1f}".removesuffix(".0")
+
+
+app.add_template_filter(date.fromisoformat, "fromiso")
 
 
 @app.get("/api/calendar")

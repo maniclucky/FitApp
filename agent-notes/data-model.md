@@ -5,25 +5,34 @@ Last updated: 2026-09-30
 
 ## Tables (see `models.py`)
 - **exercise**: `name` (unique, case-insensitive via SQLite `NOCASE` collation) plus four booleans: `tracks_weight`, `tracks_reps`, `tracks_time`, `tracks_distance`. An exercise can track any combination of these, and must track at least one (checked by the form).
-- **muscle_group**: the canonical list of muscle names (unique, `NOCASE`). 18 defaults are seeded on first run, in head-to-toe order, and the UI shows them in `id` order. Users can add custom groups from the form. A custom name that is all lowercase gets title-cased; a leading `#` is stripped.
+- **muscle_group**: the canonical list of muscle names (unique, `NOCASE`). `DEFAULT_MUSCLE_GROUPS` in `models.py` holds 20 defaults in head-to-toe order. `sync_muscle_groups()` runs at startup and creates any that are missing, so adding a default needs no migration.
+  - **Display order is the default-list order, not `id`**, with custom groups after them by id. Always list muscles with `ordered_muscle_groups()` or sort with `muscle_sort_key`, never `order_by(MuscleGroup.id)`.
+  - **Shoulders was split into Front / Side / Rear Deltoid (user decision, 2026-09-30).** Retired defaults (`RETIRED_MUSCLE_GROUPS`) are deleted at startup only when no exercise, routine target or default target references them. If one is still referenced, it stays and shows up as a custom group until the exercises are re-tagged. Caveat: a user-made custom group with a retired name would also be removed at startup once unused. Users can add custom groups from the form. A custom name that is all lowercase gets title-cased; a leading `#` is stripped.
 - **exercise_muscle**: links exercises to muscle groups, with `role` set to `primary` or `ancillary` (the user chose these names; use them everywhere: code, DB, and UI). The primary key is (exercise_id, muscle_group_id), so a muscle can't be both roles for the same exercise. The form enforces the same rule: the JS disables the twin chip, and the server drops any ancillary that's also primary.
 
 ## Decisions
 - **Chips, not free-text hashtags, for muscles**: the user first suggested hashtags. We chose preset tappable chips with an "Add" box for custom names instead, because free-typed tags drift (#quad / #quads / #quadriceps), and that would break later filtering and volume totals by muscle.
 - **Tracking modes as boolean columns**: the set is small and fixed. If modes ever need to be user-defined, move them to a join table.
-- **No migrations yet**: the app calls `db.create_all()` at startup, which creates missing tables but does NOT change existing ones. Any schema change means either adding Flask-Migrate (preferred once real data matters) or deleting `instance/fitapp.db` during early development. Ask the user before deleting it.
+- **Schema changes go through Flask-Migrate / Alembic** (`migrations/`, added 2026-09-30). The app runs `init_db()` at startup: it stamps a pre-migration database (one with tables but no recorded revision, including an *empty* `alembic_version` table) as the baseline `0001`, runs `upgrade()`, then `sync_muscle_groups()`. To change the schema:
+  1. Edit `models.py`.
+  2. Run `FITAPP_SKIP_INIT=1 FITAPP_DATABASE_URI=sqlite:////tmp/x.db FLASK_APP=app.py .venv/bin/flask db upgrade` on a throwaway database, then the same command with `db migrate --rev-id 000N -m "..."` instead of `db upgrade`.
+  3. Read the generated file, and rehearse it on a copy of `instance/fitapp.db` before starting the real app.
+  - **Gotcha: the running dev server auto-reloads on file changes, and every reload runs `upgrade()`.** Once a new migration file exists, the next edit to a watched file applies it to `instance/fitapp.db`. Also, as soon as `models.py` gains a column, the reloaded server breaks on that table until the migration is applied. So generate, rehearse on a copy, and apply promptly, backing up to `instance/fitapp.pre-migration-000N.db` first.
+  - `FITAPP_SKIP_INIT` stops startup from touching the database; `flask db migrate` needs it untouched.
+  - `render_as_batch=True` is on because SQLite can't ALTER most things. A batch change that *rebuilds* a table (anything beyond adding a nullable column) must be checked, because SQLite CHECK constraints may not survive the table copy. That's why the new target columns rely on app validation rather than CHECKs.
+  - `FITAPP_DATABASE_URI` also lets tests run against a copy (`sqlite:////path/copy.db`) instead of backing up and restoring the real database.
 - **No CSRF protection yet**: acceptable while the app is localhost-only. Add Flask-WTF/CSRF before exposing it anywhere.
 
 ## Exercise edit/delete rules
 - `/exercises/<id>/edit` reuses the exercise form (`exercise_form` view). Saving replaces the exercise's muscle links (clear, flush, re-add).
-- If an edit turns **reps tracking off**, rep targets (min/max/AMRAP) on that exercise's workout sets are cleared, so workouts don't keep stale targets.
+- If an edit turns a **tracking mode off**, that mode's targets (reps min/max/AMRAP, weight, time or distance) are cleared from the exercise's workout sets, so workouts don't keep stale targets.
 - **Deleting is blocked while any workout uses the exercise or any day has it logged** (`exercise_delete_blocker` in `app.py`). The panel shows which workouts use it and offers no Delete button, and the server refuses it too (flash error). This was chosen over silently removing the exercise from those workouts.
 
 ## Workouts (templates built in the workout builder)
 - **workout**: `name` is unique and case-insensitive (`NOCASE`). A workout is a plan; logging actual performance will need separate tables later.
 - **workout_exercise**: one exercise slot in a workout, ordered by `position`. The same exercise can appear more than once. `superset_group` is a nullable int; consecutive slots that share a value form a superset. Groups are always contiguous (the save code guarantees this) and chains of 3+ are allowed. `Workout.blocks` groups slots for display.
 - **workout_set**: one planned set, ordered by `position`, with `reps_min` and `reps_max` (each optional) and `is_amrap`. CHECK constraints: AMRAP means both bounds are NULL, min ≤ max, and min ≥ 1. Exercises that don't track reps keep only the set count; their reps and AMRAP values are ignored and stored as NULL/false.
-- The builder UI has no targets for weight, time or distance yet; only the rep range is planned. Weight, time and distance are entered in the day view when the workout is performed.
+- **Set targets (user requirement)**: `workout_set` also has optional `weight` (lb), `duration_seconds` and `distance` (mi) targets. The builder shows one column per mode the exercise tracks, in TRACKING_MODES order, like the day view. Weight/time/distance are edited as text; time takes `1:30` or microwave digits (`static/time_format.js`, shared with the day view and mirrored by `parse_duration`). The server parses and validates them (`SET_TARGETS`, `parse_set_target`) and ignores fields for modes the exercise doesn't track. Summaries read like `3 × 8–12 @ 135 lb`, `1 × 25:00 · 3 mi`, or `4 sets: 6–8, 6–8, 6–8, AMRAP @ 135 lb` (a shared weight is stated once).
 
 ## Workout builder behavior (`static/workout_builder.js`)
 - The page keeps the workout in a JS array and posts it as JSON in the hidden `items` field. The server (`parse_workout_items` in `app.py`) validates everything again. On an error it re-renders the page with the normalized items, so nothing the user entered is lost.
@@ -39,6 +48,15 @@ Last updated: 2026-09-30
 ## Routines (saved sets of workouts)
 - **routine**: `name` unique, case-insensitive (`NOCASE`). **routine_workout**: an ordered slot (`position`, unique per routine) pointing at a workout. The same workout can appear more than once (A / B / A rotations).
 - The editor (`/routines/new`, `/routines/<id>/edit`, `static/routine_form.js`) keeps an array of workout ids and posts it as JSON in the hidden `workout_ids` field; `parse_routine_workout_ids` re-validates it. Saving replaces all slots (clear, flush, insert), like workouts. At least one workout is required.
+- **Volume Planning tab (user requirement; named "Analytics" until 2026-09-30)**: the routine editor lists every muscle group (canonical order, zeros dimmed) with its weighted set count over one pass through the routine. A primary muscle counts 1 per set and an ancillary muscle counts 0.5 (`MUSCLE_SET_WEIGHTS` in `models.py`). Repeated workouts count each time. The server sends raw primary/ancillary set counts per workout (`workout_muscle_sets`), and `routine_form.js` totals them live, so unsaved edits show immediately. Set counts come from the workout plan, not logged history.
+- **Weekly normalization (user requirement)**: `routine.cycle_days` (1–365, default 7, migration 0003) is how many days one pass through the routine takes. Volume Planning multiplies every value (totals, the primary/ancillary breakdown, "over") by 7 / cycle_days, so everything reads as **weekly** sets, and targets are weekly too. Displayed values are **truncated** (cut off, not rounded) to one decimal, per the user: 8.1666 → 8.1. An invalid value in the days box displays as 7 until it's fixed; the server rejects it on save.
+- **Muscle targets (user requirement)** are **weekly minimums**. Each Volume Planning row has a target input and a bar that fills toward it (total / target, capped). Reaching the minimum turns the row green; going over shows a neutral "+N above" (not a warning, since these are minimums). A blank or 0 target means no minimum, so no bar.
+  - **routine_muscle_target** (`routine_id`, `muscle_group_id`, `sets` nullable). Saving a routine rewrites a row for every muscle group, NULL where blank, so a cleared target stays cleared. New routines start blank.
+  - Targets accept decimals from 0 to 999 (`parse_log_value`). Demo Push / Pull / Legs has a mix of under and met targets; Full Body has none.
+- **Target presets (user requirement)**: **target_preset** (`name` unique NOCASE) and **target_preset_value** (`preset_id`, `muscle_group_id`, `sets` ≥ 0), added by migration 0004. That migration also dropped the never-used, empty `muscle_target_default` table, which presets replaced.
+  - In the planner, **Presets** opens a sheet. Tapping a preset fills every target input client-side, and a muscle it lacks gets 0. Nothing is saved until "Save routine".
+  - **Edit** and **+ New preset** go to `/presets/new` or `/presets/<id>/edit` (all muscle groups, blank = 0, name, Delete) with `?next=` back to the routine. Before leaving, the unsaved routine (name, workouts, days, targets) is stashed in sessionStorage (`fitapp.routineDraft:<path>`) and restored, on the Volume Planning tab, when you return.
+  - **The user's presets come from `defaultOptions.ods`** in the project root (Maintenance, Minimum): `.venv/bin/python scripts/import_presets.py defaultOptions.ods`. Row 1 holds preset names, column A holds muscle names; "Delts" is read as "Deltoid". Missing groups are stored as 0. An unknown muscle name aborts the import, and re-importing replaces presets with the same names. It reads .ods with the standard library, so no extra dependency. Demo data adds `[DEMO] Balanced`.
 - **Deleting a routine** removes only the routine and its slots; workouts and history are untouched.
 - **Deleting a workout is blocked while any routine uses it** (`workout_delete_blocker`), mirroring the exercise-in-workout rule.
 - On the Routines list, the card title opens the routine editor and each workout row opens that workout's builder (`?next=/routines`, so Back and Save return there). The card uses a stretched title link (`.card-stretch` / `.card-cover`) because links can't be nested. `safe_next` only accepts same-site paths.
@@ -46,12 +64,35 @@ Last updated: 2026-09-30
 
 ## Day log (the day view, `/day/<YYYY-MM-DD>`)
 - **log_exercise**: one exercise entry on a calendar `date`, ordered by `position` (unique per date, gaps allowed). `superset_group` is unique within a date, and loading a workout remaps its groups so two loaded workouts never merge. `workout_id` is informational only and nullable.
-- **log_set**: `target_reps_min`, `target_reps_max` and `target_amrap` are **copied from the plan when the workout is loaded**, so editing or deleting the plan never changes history. Actual values are `weight` (lb), `reps`, `duration_seconds` and `distance` (mi), all nullable and ≥ 0. `completed_at` is NULL when the set isn't done.
+- **log_set**: `target_reps_min`, `target_reps_max`, `target_amrap`, `target_weight`, `target_duration_seconds` and `target_distance` are **copied from the plan when the workout is loaded**, so editing or deleting the plan never changes history. The day view shows them as field placeholders; they aren't prefilled as values, so a ✓ on an untouched field still records nothing. "+ Set" copies the previous set's targets. Actual values are `weight` (lb), `reps`, `duration_seconds` and `distance` (mi), all nullable and ≥ 0. `completed_at` is NULL when the set isn't done.
 - Units are fixed at lb and mi for now (labels only, no conversion). If the user wants kg/km, add a units setting before much real data exists.
 - Reordering: `POST /api/day/<date>/order` takes every log_exercise id on that day in the new order. It refuses a stale list (409) or a split superset (400), and it parks positions on negatives before renumbering so the (date, position) unique key never collides.
 - Adding exercises (`POST /api/day/<date>/exercises`, `{"exercise_ids": [...]}`, in pick order) creates 3 empty sets per exercise, or 1 set if the exercise doesn't track reps. "+ Set" copies the previous set's targets. "− Set" removes the last set, but refuses if it's completed or it's the only set.
 - If an exercise's tracking modes change later, the day view only shows its current modes. Values already stored for other modes stay in the DB but are hidden.
 - "Today" is the **server's** local date (`date.today()`). That's fine on localhost; revisit if the server and phone are ever in different time zones.
+
+## Notes (user requirement)
+- Two notes per exercise use, each up to `NOTE_MAX_LENGTH` (500) characters, trimmed, CRLF → LF, blank = NULL (`clean_note`). Added by migration 0005.
+  - **`exercise.note`** ("Every time") belongs to the exercise, so it shows on every day-view card for it and on its exercise page. Edit it in the exercise editor or the day view's Notes sheet.
+  - **`log_exercise.note`** ("This session") belongs to that day's entry. It shows on that card and in the exercise's history.
+- Day view: a **Notes** button in each card's action row opens a sheet with both notes, saved with `PATCH /api/log-exercises/<id>/notes` (`exercise_note` / `session_note`, either optional), then the page reloads. The button deliberately uses `data-notes`, not `data-act`, because the `data-act` click handler disables the button before checking the action.
+- History includes a date that has a session note even when no sets were recorded, e.g. "skipped, knee sore".
+- Demo data: 3 exercises have every-time notes, every third session has a session note, and the unfinished last exercise of the latest session has a note-only entry.
+
+## Exercise history (user requirement)
+- `exercise_history(exercise, before=None)` in `app.py` returns one session per date, newest first, capped at `HISTORY_LIMIT` (60) dates. A session holds the sets actually recorded that day (completed, or with any value typed in) and that day's session notes. Sets that were typed but not checked off show dimmed as "not checked off". Dates with no recorded sets and no note are skipped, so blank loaded workouts don't clutter it.
+- It's rendered by one partial, `templates/_exercise_history.html`, in two places:
+  - The exercise page `/exercises/<id>` (what a Library card opens; Edit is a button there, and the editor's back and save return to it).
+  - The day view's **History** button on each card. It fetches `/exercises/<id>/history?before=<viewed day>` into a sheet, so it shows only sessions before the day you're on.
+- Set results are formatted by the `set_result` filter using the exercise's *current* tracking modes, e.g. `135 lb × 8`, `50 lb · 0:45`, `25:00 · 3 mi`.
+
+## Progress page (`/progress`, user requirement)
+- The date range comes from `?start=&end=`. The default and the "Month" preset are one calendar month back from today (`month_before`, which clamps Mar 31 → Feb 28), through today; there are also Week and 3-month presets. Ranges are at most 366 days, and a bad range flashes an error and falls back to the default.
+- **Only completed (✓) sets count**, for both calculations:
+  - **Volume per day** = sum of weight × reps over completed sets that have both values. Every day in the range is sent (zeros included) and drawn as an inline-SVG bar chart by `static/progress.js`, with a tooltip on hover/tap/←→ and a "Show as table" view.
+  - **Sets per muscle group** use the routine weighting (`MUSCLE_SET_WEIGHTS`: primary 1, ancillary 0.5) with each exercise's *current* muscle links. Per week = total × 7 ÷ days in range. Every group is listed, zeros dimmed.
+- Displayed numbers are truncated (cut off, not rounded) to one decimal (`trunc1` and `volume` filters, plus `fmt` in progress.js).
+- Chart color: bars use `#16a34a`, not the app accent `#22c55e`. The dataviz validator failed `#22c55e` on the dark lightness band against the card surface `#1e293b`; `#16a34a` passes everything (contrast 4.4:1). The accent is used only for the hovered bar.
 
 ## Day view behavior (`static/day.js`, `static/rest_timer.js`)
 - Field edits autosave via `PATCH /api/sets/<id>` when the field loses focus. Tapping ✓ sends the whole row plus `completed`, so values typed just before tapping aren't lost. Structural changes (load workout, add exercise, ±set) call the JSON API and then `location.reload()`, which keeps the scroll position.
@@ -65,6 +106,6 @@ Last updated: 2026-09-30
 - Timer state (duration, auto-start, `endsAt`) lives in localStorage (`fitapp.restTimer`) so it survives reloads and day swipes. It's per device by design. Known limit: browsers pause JS when the phone is locked, so the alarm (vibration plus beeps) only fires once the page is visible again. Reliable background alerts would need notifications, a PWA or a service worker.
 
 ## Demo data
-- Created by `scripts/demo_data.py`: 18 exercises, 5 workouts, 2 routines (one repeats a workout) and about 5 weeks of logged history ending yesterday (the latest session is left half done), all tied to `[DEMO] `-prefixed exercises. The set covers every tracking mode, supersets (including a tri-set), AMRAP, and every kind of rep range.
+- Created by `scripts/demo_data.py`: 19 exercises, 5 workouts, 2 routines (one repeats a workout; Full Body A / B has a 5-day cycle) and about 5 weeks of logged history ending yesterday. Schedule: Mon Push, Tue Full Body, Wed Pull, Fri Legs, Sat Conditioning. Older sessions are occasionally skipped, but none in the last 3 weeks (`FULL_HISTORY_DAYS`), so every demo exercise has at least 2 completed recent sessions to examine (user request). The latest session is left half done, all tied to `[DEMO] `-prefixed exercises. The set covers every tracking mode, supersets (including a tri-set), AMRAP, and every kind of rep range.
 - Demo workouts only use demo exercises, and demo routines only use demo workouts. `--remove` deletes demo history, then demo routines, then demo workouts, then demo exercises. It keeps (and reports) any demo workout a non-demo routine uses, and any demo exercise a remaining workout uses. Re-seeding while such leftovers exist fails on the unique name.
 - The script reuses `build_workout_exercises` and `get_or_create_muscle` from `app.py`, so it always follows the same rules as the UI.

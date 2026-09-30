@@ -24,7 +24,11 @@
 
 {% block content %}
 <header class="page-header">
-  <a class="back" href="{{ url_for('exercises') }}" aria-label="Back to exercises">&larr;</a>
+  {% if exercise %}
+    <a class="back" href="{{ url_for('exercise_detail', exercise_id=exercise.id) }}" aria-label="Back to {{ exercise.name }}">&larr;</a>
+  {% else %}
+    <a class="back" href="{{ url_for('exercises') }}" aria-label="Back to exercises">&larr;</a>
+  {% endif %}
   <h1>{{ 'Edit exercise' if exercise else 'New exercise' }}</h1>
 </header>
 
@@ -56,6 +60,12 @@
 
   {{ muscle_field('primary', 'Primary muscle groups', 'The main muscles this exercise targets.') }}
   {{ muscle_field('ancillary', 'Ancillary muscle groups', 'Supporting muscles (optional).') }}
+
+  <div class="field">
+    <label for="note">Note</label>
+    <p class="hint">Shown every time you do this exercise, e.g. seat height or form cues (optional).</p>
+    <textarea id="note" name="note" rows="3" maxlength="{{ note_max }}">{{ form.note }}</textarea>
+  </div>
 
   <button type="submit" class="button block">Save exercise</button>
 </form>

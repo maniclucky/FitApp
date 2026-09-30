@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ exercise.name }} · FitApp{% endblock %}
+{% block screen_class %}{% endblock %}
+{% block tabbar %}{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <a class="back" href="{{ url_for('exercises') }}" aria-label="Back to exercises">&larr;</a>
+  <h1>{{ exercise.name }}</h1>
+  <a class="button subtle" href="{{ url_for('exercise_form', exercise_id=exercise.id) }}">Edit</a>
+</header>
+
+<section class="card exercise-info">
+  <div class="badges">
+    {% for mode in exercise.tracking_modes %}<span class="badge">{{ mode|capitalize }}</span>{% endfor %}
+  </div>
+  <p class="muscles"><strong>Primary:</strong> {{ exercise.muscle_names('primary')|join(', ') }}</p>
+  {% set ancillary = exercise.muscle_names('ancillary') %}
+  {% if ancillary %}<p class="muscles"><strong>Ancillary:</strong> {{ ancillary|join(', ') }}</p>{% endif %}
+  {% if exercise.note %}<p class="note exercise-note">{{ exercise.note }}</p>{% endif %}
+</section>
+
+<h2 class="section-title">History</h2>
+{% include "_exercise_history.html" %}
+{% endblock %}

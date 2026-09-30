@@ -305,6 +305,35 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
   font-size: 0.8rem;
   font-weight: 700;
 }
+.segmented.two { grid-template-columns: repeat(2, 1fr); }
+.cycle-days { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.cycle-days label { font-weight: 600; }
+.cycle-days input[type="text"] { width: 72px; min-height: 44px; text-align: center; font-weight: 700; }
+.cycle-days input.invalid { border-color: var(--danger); }
+.muscle-volume { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.mv-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.mv-name { font-weight: 600; }
+.mv-total { font-weight: 700; font-variant-numeric: tabular-nums; }
+.mv-unit { font-weight: 400; font-size: 0.85rem; color: var(--muted); }
+.mv-bar { height: 6px; margin-top: 4px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.mv-bar span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.mv-detail { margin-top: 3px; font-size: 0.8rem; color: var(--muted); }
+.muscle-volume li.none .mv-name, .muscle-volume li.none [data-total] { opacity: 0.45; }
+.mv-head { align-items: center; }
+.mv-total { display: inline-flex; align-items: center; gap: 6px; }
+.muscle-volume input.mv-target {
+  width: 56px;
+  min-height: 36px;
+  padding: 0 4px;
+  text-align: center;
+  font-weight: 600;
+}
+.muscle-volume input.mv-target.invalid { border-color: var(--danger); }
+.muscle-volume li.no-target .mv-bar { visibility: hidden; }
+.muscle-volume li.met .mv-name { color: var(--accent); }
+.muscle-volume li:not(.met):not(.no-target) .mv-bar span { background: color-mix(in srgb, var(--accent) 55%, var(--muted)); }
+.preset-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.preset-row .hint { margin: 0; }
 .routine-item { display: flex; align-items: center; gap: 10px; }
 .routine-item .wx-title { flex: 1; min-width: 0; }
 .routine-item h3 { overflow-wrap: anywhere; }
@@ -325,28 +354,24 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .wx-title h3 { margin: 0 0 4px; font-size: 1.05rem; }
 .wx-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
-.set-head {
-  display: flex;
-  gap: 8px;
-  font-size: 0.8rem;
-  color: var(--muted);
-  margin: 4px 0 4px;
-}
-.set-head span:first-child { width: 28px; }
+.set-hint { margin: 2px 0 6px; font-size: 0.8rem; color: var(--muted); }
+/* Set rows are grids; builder JS sets grid-template-columns per exercise (one column per mode). */
+.set-head, .set-row { display: grid; gap: 6px; align-items: center; }
+.set-head { font-size: 0.75rem; color: var(--muted); text-align: center; margin: 0 0 4px; }
 .sets { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.set-row { display: flex; align-items: center; gap: 6px; }
 .set-num { width: 28px; flex-shrink: 0; text-align: center; color: var(--muted); font-weight: 600; }
 .set-row input[type="text"] {
-  width: 56px;
+  width: 100%;
+  min-width: 0;
   min-height: 40px;
-  padding: 0 6px;
+  padding: 0 4px;
   text-align: center;
 }
 .set-row input[type="text"]:disabled { opacity: 0.4; }
-.set-row.invalid input[type="text"] { border-color: var(--danger); }
+.set-row input[type="text"].invalid { border-color: var(--danger); }
+.rep-range { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .range-dash { color: var(--muted); }
-.set-row .icon-btn { margin-left: auto; }
-.set-note { color: var(--muted); font-size: 0.9rem; }
+.set-row .mini-toggle span { padding: 0 7px; font-size: 0.72rem; }
 
 .mini-toggle { position: relative; }
 .mini-toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
@@ -764,3 +789,146 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .pick-detail .workout-summary { font-size: 0.92rem; }
 .picker-list .cycle-btn { min-width: 44px; min-height: 44px; font-size: 1.2rem; }
 .routine-pick.overridden .picker-sub, .routine-pick.overridden [data-pick-pos] { color: var(--accent); }
+
+/* Exercise history (exercise page + day view sheet) */
+.section-title { margin: 22px 0 10px; font-size: 1.1rem; }
+.exercise-info .badges { margin-bottom: 6px; }
+.history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.history-day { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+.history-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.history-head a { color: var(--text); font-weight: 700; text-decoration: none; }
+.history-head a:active, .history-head a:focus-visible { color: var(--accent); }
+.history-head .picker-meta { text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.history-sets { list-style: none; margin: 0; padding: 0; }
+.history-sets li { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; font-variant-numeric: tabular-nums; }
+.history-sets .set-num { width: 20px; font-size: 0.85rem; }
+.history-sets .picker-meta { margin-left: auto; }
+.history-sets li.not-done > span:nth-child(2) { color: var(--muted); }
+.history-more { margin-top: 10px; text-align: center; }
+.history-sheet { height: 80dvh; }
+.history-sheet .sheet-head { align-items: flex-start; }
+.history-body { overflow-y: auto; min-height: 0; flex: 1; }
+.log-head-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.log-head-actions .button.small { min-height: 40px; padding: 0 10px; font-size: 0.85rem; }
+
+/* Target preset form */
+.preset-values { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.preset-values li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  border-bottom: 1px solid var(--border);
+}
+.preset-values label { font-weight: 600; }
+.preset-values input[type="text"] { width: 72px; min-height: 44px; text-align: center; font-weight: 600; }
+.preset-values input.invalid { border-color: var(--danger); }
+
+/* Notes (exercise "every time" notes and per-session notes) */
+textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* prevents iOS zoom-on-focus */
+  resize: vertical;
+}
+textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.note {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--border);
+  border-radius: 0 8px 8px 0;
+  background: var(--surface-2);
+  font-size: 0.9rem;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.note.exercise-note { border-left-color: #60a5fa; }
+.note.session-note { border-left-color: var(--accent); }
+.note-kind {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.log-notes { margin: -2px 0 10px; }
+.log-actions .notes-btn { margin-left: auto; }
+.history-day .note { margin: 2px 0 6px; }
+.notes-sheet .form { gap: 14px; }
+
+/* Progress */
+.range-filter { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.range-presets { display: flex; gap: 8px; }
+.chip-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+}
+.chip-link[aria-current="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.range-custom { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.range-custom label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--muted); min-width: 0; }
+.range-custom button { grid-column: 1 / -1; }
+.range-custom input[type="date"] {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  color-scheme: dark;
+}
+.range-note { margin: 0; }
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.kpi { display: flex; flex-direction: column; padding: 10px 12px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); }
+.kpi-value { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi-label { font-size: 0.8rem; color: var(--muted); }
+.chart-card, .card + .card { margin-bottom: 12px; }
+.chart-card h2 { margin-bottom: 2px; }
+.chart { position: relative; margin-top: 8px; touch-action: pan-y; }
+.chart:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+.chart svg { display: block; }
+.chart .grid { stroke: var(--surface-2); stroke-width: 1; }
+.chart .axis { stroke: var(--border); stroke-width: 1; }
+.chart .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart-tooltip {
+  position: absolute;
+  top: -6px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.4);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.chart-tooltip strong { font-size: 1rem; }
+.chart-tooltip span { font-size: 0.8rem; color: var(--muted); }
+.table-view { margin-top: 10px; font-size: 0.9rem; }
+.table-view summary { cursor: pointer; color: var(--muted); min-height: 36px; display: flex; align-items: center; }
+.table-view table, .muscle-sets { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.table-view th, .table-view td, .muscle-sets th, .muscle-sets td { padding: 6px 4px; border-bottom: 1px solid var(--surface-2); text-align: right; }
+.table-view th:first-child, .table-view td:first-child, .muscle-sets th:first-child { text-align: left; }
+.table-view a { color: var(--text); }
+.muscle-sets thead th { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+.muscle-sets tbody th { font-weight: 600; }
+.muscle-sets tr.none { color: var(--muted); }
+.muscle-sets tr.none th { font-weight: 400; }
