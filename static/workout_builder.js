@@ -219,15 +219,15 @@
   // ----- Exercise picker (bottom sheet) -----
 
   const pickerList = document.getElementById("picker-list");
-  const search = document.getElementById("picker-search");
+  const filterRoot = picker.querySelector("[data-exercise-filter]");
+  const filter = filterRoot && window.ExerciseFilter(filterRoot, renderPicker);
   const none = document.getElementById("picker-none");
 
   function renderPicker() {
     if (!pickerList) return;
-    const q = search.value.trim().toLowerCase();
     const counts = new Map();
     for (const it of items) counts.set(it.exercise_id, (counts.get(it.exercise_id) || 0) + 1);
-    const matches = options.filter((o) => o.name.toLowerCase().includes(q));
+    const matches = options.filter(filter.matches);
     pickerList.innerHTML = matches.map((o) => {
       const n = counts.get(o.id);
       return `<li><button type="button" data-id="${o.id}">
@@ -239,7 +239,7 @@
   }
 
   document.getElementById("open-picker").addEventListener("click", () => {
-    if (search) search.value = "";
+    filter?.reset();
     renderPicker();
     picker.showModal();
   });
@@ -248,7 +248,6 @@
     if (e.target === picker) picker.close(); // tap on backdrop
   });
   if (pickerList) {
-    search.addEventListener("input", renderPicker);
     pickerList.addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-id]");
       if (!btn) return;

@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · FitApp{% endblock %}
+{% block screen_class %} has-tabbar has-timer{% endblock %}
+
+{% block content %}
+<div class="day" id="day"
+     data-date="{{ day.isoformat() }}" data-today="{{ today.isoformat() }}"
+     data-prev="{{ url_for('day', day_str=prev_day.isoformat()) }}"
+     data-next="{{ url_for('day', day_str=next_day.isoformat()) }}"
+     data-day-url="{{ url_for('day', day_str='DATE') }}">
+
+  <header class="day-header">
+    <a class="icon-btn day-nav" href="{{ url_for('day', day_str=prev_day.isoformat()) }}" aria-label="Previous day">&lsaquo;</a>
+    <button type="button" class="day-title" id="open-calendar" aria-label="{{ title }}, {{ subtitle }}. Open calendar">
+      <span class="day-name">{{ title }}</span>
+      <span class="day-date">{{ subtitle }} &#9662;</span>
+    </button>
+    <a class="icon-btn day-nav" href="{{ url_for('day', day_str=next_day.isoformat()) }}" aria-label="Next day">&rsaquo;</a>
+  </header>
+  {% if day != today %}
+    <p class="jump-today"><a href="{{ url_for('day') }}">Jump to today</a></p>
+  {% endif %}
+
+  {% if blocks %}
+    {% if blocks|length > 1 %}<p class="hint reorder-hint">Long-press an exercise to drag it into a new order.</p>{% endif %}
+    <div class="log-list" id="log-list">
+      {% for block in blocks %}
+        <div class="log-block{% if block|length > 1 %} superset{% endif %}" data-block>
+          {% if block|length > 1 %}<span class="superset-tag">Superset</span>{% endif %}
+          {% for lx in block %}
+            {% set modes = lx.exercise.tracking_modes %}
+            <section class="log-card" id="lx-{{ lx.id }}" data-lx="{{ lx.id }}">
+              <div class="log-head">
+                <div>
+                  <h2>{{ lx.exercise.name }}</h2>
+                  {% if lx.workout %}<span class="log-source">{{ lx.workout.name }}</span>{% endif %}
+                </div>
+                <button type="button" class="icon-btn danger" aria-label="Remove {{ lx.exercise.name }}"
+                        data-confirm-delete="{{ url_for('delete_log_exercise', lx_id=lx.id) }}"
+                        data-name="{{ lx.exercise.name }}"
+                        data-detail="Removes it and its sets from this day.">&times;</button>
+              </div>
+
+              <div class="log-grid" style="--cols: {{ modes|length }}">
+                <div class="log-row log-labels" aria-hidden="true">
+                  <span>Set</span>
+                  {% for m in modes %}<span>{{ fields[m].label }}</span>{% endfor %}
+                  <span>Done</span>
+                </div>
+                {% for s in lx.sets %}
+                  {% set n = loop.index %}
+                  <div class="log-row{% if s.completed_at %} done{% endif %}" data-set="{{ s.id }}"
+                       data-rest="{{ 1 if s.id in rest_after else 0 }}">
+                    <span class="set-num">{{ n }}</span>
+                    {% for m in modes %}
+                      {% set f = fields[m] %}
+                      {% if m == 'time' %}
+                        {% set value = s.duration_seconds|mmss %}
+                        {% set placeholder = 'm:ss' %}
+                      {% elif m == 'reps' %}
+                        {% set value = s.reps|num %}
+                        {% set placeholder = s.target_label or '–' %}
+                      {% else %}
+                        {% set value = s[f.field]|num %}
+                        {% set placeholder = '–' %}
+                      {% endif %}
+                      <input type="text" inputmode="{{ f.inputmode }}" autocomplete="off"
+                             data-field="{{ f.field }}" value="{{ value }}" placeholder="{{ placeholder }}"
+                             aria-label="Set {{ n }} {{ f.label }}{% if m == 'reps' and s.target_label %}, target {{ s.target_label }}{% endif %}">
+                    {% endfor %}
+                    <button type="button" class="check" aria-pressed="{{ 'true' if s.completed_at else 'false' }}"
+                            aria-label="Set {{ n }} completed">&#10003;</button>
+                  </div>
+                {% endfor %}
+              </div>
+
+              <div class="log-actions">
+                <button type="button" class="button subtle small" data-act="add-set" data-lx="{{ lx.id }}">+ Set</button>
+                <button type="button" class="button subtle small" data-act="remove-set" data-lx="{{ lx.id }}"
+                        {% if lx.sets|length == 1 %}disabled{% endif %}>&minus; Set</button>
+              </div>
+            </section>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="empty">Nothing logged {{ 'today' if day == today else 'on this day' }}.<br>Tap <strong>+ Add</strong> for a routine, workout or exercises.</p>
+  {% endif %}
+
+  <div class="day-actions">
+    <button type="button" class="button block" id="open-add">+ Add</button>
+    {% if blocks %}
+      {% set n_ex = blocks|map('length')|sum %}
+      <button type="button" class="button danger small clear-day"
+              data-confirm-delete="{{ url_for('clear_day', day_str=day.isoformat()) }}"
+              data-title="Clear {{ 'today' if day == today else 'this day' }}?"
+              data-detail="Removes all {{ n_ex }} exercise{{ '' if n_ex == 1 else 's' }} and their sets, including anything you’ve logged. This can’t be undone.">Clear day</button>
+    {% endif %}
+  </div>
+</div>
+
+{# ---- Sheets ---- #}
+<dialog class="sheet add-sheet" id="add-sheet" aria-labelledby="add-sheet-title">
+  <div class="sheet-head">
+    <h2 id="add-sheet-title">Add to {{ 'today' if day == today else 'this day' }}</h2>
+    <button type="button" class="button subtle" data-close>Cancel</button>
+  </div>
+  <div class="segmented" role="tablist" aria-label="What to add">
+    {% for key, label in [('routines', 'Routines'), ('workouts', 'Workouts'), ('exercises', 'Exercises')] %}
+      <button type="button" role="tab" id="tab-{{ key }}" aria-controls="panel-{{ key }}" data-tab="{{ key }}">{{ label }}</button>
+    {% endfor %}
+  </div>
+
+  <div class="tab-panel" role="tabpanel" id="panel-routines" aria-labelledby="tab-routines" hidden>
+    {% if routines %}
+      <p class="hint">Tap a routine to preview its next workout. Tap &#8635; to pick a different one.</p>
+      <ul class="picker-list">
+        {% for r, next_i in routines %}
+          <li class="pick-item routine-pick" data-kind="routines" data-id="{{ r.id }}"
+              data-index="{{ next_i }}" data-suggested="{{ next_i }}"
+              data-workouts="{{ r.workouts|map(attribute='workout_id')|list|tojson }}">
+            <div class="pick-row">
+              <button type="button" class="pick-toggle" aria-expanded="false" aria-controls="pick-routine-{{ r.id }}">
+                <span>{{ r.name }}<span class="picker-sub"><span data-pick-label>Next</span>: <span data-pick-name>{{ r.workouts[next_i].workout.name }}</span></span></span>
+                <span class="picker-meta" data-pick-pos>{{ next_i + 1 }} of {{ r.workouts|length }}</span>
+                <span class="chev" aria-hidden="true">&#9662;</span>
+              </button>
+              {% if r.workouts|length > 1 %}
+                <button type="button" class="icon-btn cycle-btn" data-cycle aria-label="Pick a different workout from {{ r.name }}">&#8635;</button>
+              {% endif %}
+            </div>
+            <div class="pick-detail" id="pick-routine-{{ r.id }}" hidden>
+              <ol class="workout-summary" data-summary></ol>
+              <button type="button" class="button block" data-load>Load {{ r.workouts[next_i].workout.name }}</button>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="empty small">No routines yet. <a href="{{ url_for('routine_form') }}">Make one</a>.</p>
+    {% endif %}
+  </div>
+
+  <div class="tab-panel" role="tabpanel" id="panel-workouts" aria-labelledby="tab-workouts" hidden>
+    {% if workouts %}
+      <ul class="picker-list">
+        {% for w in workouts %}
+          <li class="pick-item" data-kind="workouts" data-id="{{ w.id }}" data-workouts="{{ [w.id]|tojson }}" data-index="0">
+            <div class="pick-row">
+              <button type="button" class="pick-toggle" aria-expanded="false" aria-controls="pick-workout-{{ w.id }}">
+                <span>{{ w.name }}</span>
+                <span class="picker-meta">{{ w.exercises|length }} exercise{{ '' if w.exercises|length == 1 else 's' }}</span>
+                <span class="chev" aria-hidden="true">&#9662;</span>
+              </button>
+            </div>
+            <div class="pick-detail" id="pick-workout-{{ w.id }}" hidden>
+              <ol class="workout-summary" data-summary></ol>
+              <button type="button" class="button block" data-load>Load workout</button>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="empty small">No workouts yet. <a href="{{ url_for('workout_builder') }}">Build one first</a>.</p>
+    {% endif %}
+  </div>
+
+  <div class="tab-panel" role="tabpanel" id="panel-exercises" aria-labelledby="tab-exercises" hidden>
+    {% if exercise_options %}
+      {% include "_exercise_filter.html" %}
+      <ul class="picker-list multi" id="exercise-list"></ul>
+      <p class="empty small" id="exercise-none" hidden>No matches.</p>
+      <button type="button" class="button block" id="add-exercises" disabled>Select exercises</button>
+    {% else %}
+      <p class="empty small">No exercises yet. <a href="{{ url_for('exercise_form') }}">Create one first</a>.</p>
+    {% endif %}
+  </div>
+</dialog>
+
+<dialog class="sheet" id="calendar-sheet" aria-labelledby="cal-title">
+  <div class="cal-head">
+    <button type="button" class="icon-btn" data-month="-1" aria-label="Previous month">&lsaquo;</button>
+    <h2 id="cal-title"></h2>
+    <button type="button" class="icon-btn" data-month="1" aria-label="Next month">&rsaquo;</button>
+  </div>
+  <div class="cal-grid" id="cal-grid"></div>
+  <p class="cal-legend"><span class="dot partial"></span> Logged <span class="dot complete"></span> All sets done</p>
+  <div class="sheet-actions">
+    <button type="button" class="button subtle block" data-close>Close</button>
+    <a class="button block" href="{{ url_for('day') }}">Today</a>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="timer-sheet" aria-labelledby="timer-sheet-title">
+  <div class="sheet-head">
+    <h2 id="timer-sheet-title">Rest timer</h2>
+    <button type="button" class="button" data-close>Done</button>
+  </div>
+  <div class="stepper">
+    <button type="button" class="icon-btn" data-step="-15" aria-label="15 seconds less">&minus;15s</button>
+    <output id="timer-duration" aria-live="polite">1:30</output>
+    <button type="button" class="icon-btn" data-step="15" aria-label="15 seconds more">+15s</button>
+  </div>
+  <div class="presets">
+    {% for sec in [30, 60, 90, 120, 180] %}
+      <button type="button" class="button subtle small" data-preset="{{ sec }}">{{ sec|mmss }}</button>
+    {% endfor %}
+  </div>
+  <label class="switch">
+    <input type="checkbox" id="timer-auto">
+    <span>Start automatically when a set is completed</span>
+  </label>
+  <p class="hint">In a superset, it starts only after the last exercise of each round.</p>
+</dialog>
+
+{# ---- Rest timer bar ---- #}
+<div class="timer" id="timer" data-state="idle">
+  <button type="button" class="timer-main" id="timer-main">
+    <span class="timer-label" id="timer-label">Rest</span>
+    <span class="timer-time" id="timer-time">1:30</span>
+  </button>
+  <button type="button" class="icon-btn running-only" data-adjust="-15" aria-label="15 seconds less">&minus;15</button>
+  <button type="button" class="icon-btn running-only" data-adjust="15" aria-label="15 seconds more">+15</button>
+  <button type="button" class="icon-btn" id="timer-settings" aria-label="Rest timer settings">&#9881;</button>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script type="application/json" id="workout-summaries">{{ workout_summaries|tojson }}</script>
+<script type="application/json" id="exercise-options">{{ exercise_options|tojson }}</script>
+{% include "_confirm_delete.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='rest_timer.js') }}"></script>
+<script src="{{ url_for('static', filename='exercise_filter.js') }}"></script>
+<script src="{{ url_for('static', filename='day.js') }}"></script>
+<script src="{{ url_for('static', filename='confirm_delete.js') }}"></script>
+{% endblock %}

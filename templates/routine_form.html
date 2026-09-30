@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if routine else 'New' }} routine · FitApp{% endblock %}
+{% block screen_class %}{% endblock %}
+{% block tabbar %}{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <a class="back" href="{{ url_for('routines') }}" aria-label="Back to routines">&larr;</a>
+  <h1>{{ 'Edit routine' if routine else 'New routine' }}</h1>
+</header>
+
+{% if errors %}
+  <div class="errors" role="alert">
+    <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  </div>
+{% endif %}
+
+<form method="post" class="form" id="routine-form" novalidate>
+  <div class="field">
+    <label for="name">Name</label>
+    <input id="name" name="name" type="text" maxlength="100" required autocomplete="off"
+           placeholder="e.g. Push / Pull / Legs" value="{{ name }}">
+  </div>
+
+  <div class="field">
+    <span class="field-label">Workouts</span>
+    <p class="hint">In the order you do them. A workout can appear more than once.</p>
+    <ol class="builder-list" id="routine-list"></ol>
+    <p class="empty small" id="routine-empty">No workouts yet.</p>
+    <button type="button" class="button subtle block" id="open-picker">+ Add workout</button>
+  </div>
+
+  <input type="hidden" name="workout_ids" id="workout-ids-input">
+  <button type="submit" class="button block">Save routine</button>
+</form>
+
+{% if routine %}
+  <button type="button" class="button danger block delete-trigger"
+          data-confirm-delete="{{ url_for('delete_routine', routine_id=routine.id) }}" data-name="{{ routine.name }}"
+          data-detail="This removes the routine only. Its workouts and your logged days stay.">Delete routine</button>
+  {% include "_confirm_delete.html" %}
+{% endif %}
+
+<dialog class="sheet" id="picker" aria-labelledby="picker-title">
+  <div class="sheet-head">
+    <h2 id="picker-title">Add workouts</h2>
+    <button type="button" class="button" id="close-picker">Done</button>
+  </div>
+  {% if workout_options %}
+    <ul class="picker-list" id="picker-list"></ul>
+  {% else %}
+    <p class="empty small">You haven't built any workouts yet.
+      <a href="{{ url_for('workout_builder') }}">Build one first</a>.</p>
+  {% endif %}
+</dialog>
+
+<script type="application/json" id="workout-options">{{ workout_options|tojson }}</script>
+<script type="application/json" id="initial-workout-ids">{{ workout_ids|tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='routine_form.js') }}"></script>
+<script src="{{ url_for('static', filename='confirm_delete.js') }}"></script>
+{% endblock %}

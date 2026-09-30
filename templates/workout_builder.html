@@ -5,7 +5,7 @@
 
 {% block content %}
 <header class="page-header">
-  <a class="back" href="{{ url_for('workouts') }}" aria-label="Back to workouts">&larr;</a>
+  <a class="back" href="{{ back }}" aria-label="Back">&larr;</a>
   <h1>{{ 'Edit workout' if workout else 'New workout' }}</h1>
 </header>
 
@@ -30,13 +30,15 @@
   </div>
 
   <input type="hidden" name="items" id="items-input">
+  {% if request.values.get('next') %}<input type="hidden" name="next" value="{{ back }}">{% endif %}
   <button type="submit" class="button block">Save workout</button>
 </form>
 
 {% if workout %}
   <button type="button" class="button danger block delete-trigger"
           data-confirm-delete="{{ url_for('delete_workout', workout_id=workout.id) }}" data-name="{{ workout.name }}"
-          data-detail="This permanently removes the workout and all its sets. It can’t be undone.">Delete workout</button>
+          data-detail="This permanently removes the workout plan. Days you’ve already logged keep their sets."
+          {% if blocked %}data-blocked="{{ blocked }}"{% endif %}>Delete workout</button>
   {% include "_confirm_delete.html" %}
 {% endif %}
 
@@ -46,7 +48,7 @@
     <button type="button" class="button" id="close-picker">Done</button>
   </div>
   {% if exercise_options %}
-    <input type="text" id="picker-search" placeholder="Search exercises" aria-label="Search exercises" autocomplete="off">
+    {% include "_exercise_filter.html" %}
     <ul class="picker-list" id="picker-list"></ul>
     <p class="empty small" id="picker-none" hidden>No matches.</p>
   {% else %}
@@ -60,6 +62,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='exercise_filter.js') }}"></script>
 <script src="{{ url_for('static', filename='workout_builder.js') }}"></script>
 <script src="{{ url_for('static', filename='confirm_delete.js') }}"></script>
 {% endblock %}
