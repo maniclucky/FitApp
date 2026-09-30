@@ -86,6 +86,14 @@ Last updated: 2026-09-30
   - The day view's **History** button on each card. It fetches `/exercises/<id>/history?before=<viewed day>` into a sheet, so it shows only sessions before the day you're on.
 - Set results are formatted by the `set_result` filter using the exercise's *current* tracking modes, e.g. `135 lb × 8`, `50 lb · 0:45`, `25:00 · 3 mi`.
 
+## Progress page (`/progress`, user requirement)
+- The date range comes from `?start=&end=`. The default and the "Month" preset are one calendar month back from today (`month_before`, which clamps Mar 31 → Feb 28), through today; there are also Week and 3-month presets. Ranges are at most 366 days, and a bad range flashes an error and falls back to the default.
+- **Only completed (✓) sets count**, for both calculations:
+  - **Volume per day** = sum of weight × reps over completed sets that have both values. Every day in the range is sent (zeros included) and drawn as an inline-SVG bar chart by `static/progress.js`, with a tooltip on hover/tap/←→ and a "Show as table" view.
+  - **Sets per muscle group** use the routine weighting (`MUSCLE_SET_WEIGHTS`: primary 1, ancillary 0.5) with each exercise's *current* muscle links. Per week = total × 7 ÷ days in range. Every group is listed, zeros dimmed.
+- Displayed numbers are truncated (cut off, not rounded) to one decimal (`trunc1` and `volume` filters, plus `fmt` in progress.js).
+- Chart color: bars use `#16a34a`, not the app accent `#22c55e`. The dataviz validator failed `#22c55e` on the dark lightness band against the card surface `#1e293b`; `#16a34a` passes everything (contrast 4.4:1). The accent is used only for the hovered bar.
+
 ## Day view behavior (`static/day.js`, `static/rest_timer.js`)
 - Field edits autosave via `PATCH /api/sets/<id>` when the field loses focus. Tapping ✓ sends the whole row plus `completed`, so values typed just before tapping aren't lost. Structural changes (load workout, add exercise, ±set) call the JSON API and then `location.reload()`, which keeps the scroll position.
 - Time fields accept `m:ss` or microwave-style digits (`130` → 1:30), which suits phone number pads.

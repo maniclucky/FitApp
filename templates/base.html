@@ -30,6 +30,7 @@
         {% endfor %}
       </div>
     </div>
+    <a href="{{ url_for('progress') }}" {% if request.endpoint == 'progress' %}aria-current="page"{% endif %}>Progress</a>
   </nav>
   <script src="{{ url_for('static', filename='nav.js') }}"></script>
   {% endblock %}

@@ -22,4 +22,4 @@ Anything here is committed to git so future sessions can build on it.
 
 ## Index
 - [stack-decisions.md](stack-decisions.md) — why Flask, mobile-first layout rules, bottom bar, localhost-only constraint
-- [data-model.md](data-model.md) — migrations workflow, exercises, workouts (set targets), routines, day log, notes, exercise history (target snapshots), superset/AMRAP/rest-timer rules, delete rules, demo data
+- [data-model.md](data-model.md) — migrations workflow, exercises, workouts (set targets), routines, day log, notes, exercise history, progress page (target snapshots), superset/AMRAP/rest-timer rules, delete rules, demo data

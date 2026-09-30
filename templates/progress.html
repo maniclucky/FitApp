@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Progress · FitApp{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>Progress</h1>
+</header>
+
+{# Date range first; it scopes everything below. #}
+<section class="range-filter" aria-label="Date range">
+  <div class="range-presets">
+    {% for label, preset_start in presets %}
+      <a class="chip-link" href="{{ url_for('progress', start=preset_start.isoformat(), end=today.isoformat()) }}"
+         {% if start == preset_start and end == today %}aria-current="true"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </div>
+  <form method="get" class="range-custom">
+    <label>From <input type="date" name="start" value="{{ start.isoformat() }}" max="{{ today.isoformat() }}"></label>
+    <label>To <input type="date" name="end" value="{{ end.isoformat() }}"></label>
+    <button type="submit" class="button subtle small">Apply</button>
+  </form>
+  <p class="hint range-note">{{ start|history_date }} – {{ end|history_date }} · {{ n_days }} day{{ '' if n_days == 1 else 's' }}. Only completed (✓) sets count.</p>
+</section>
+
+<section class="kpis" aria-label="Totals">
+  <div class="kpi"><span class="kpi-value">{{ total_volume|volume }}</span><span class="kpi-label">lb volume</span></div>
+  <div class="kpi"><span class="kpi-value">{{ training_days }}</span><span class="kpi-label">lifting days</span></div>
+  <div class="kpi"><span class="kpi-value">{{ completed_sets }}</span><span class="kpi-label">sets done</span></div>
+</section>
+
+<section class="card chart-card">
+  <h2>Volume per day</h2>
+  <p class="hint">Sum of weight × reps across completed sets, in lb.</p>
+  {% if total_volume %}
+    <div class="chart" id="volume-chart" tabindex="0" role="img"
+         aria-label="Bar chart of volume per day from {{ start|history_date }} to {{ end|history_date }}. Use the left and right arrow keys to read each day, or open the table below.">
+      <div class="chart-tooltip" id="chart-tooltip" hidden><strong></strong><span></span></div>
+    </div>
+    <details class="table-view">
+      <summary>Show as table</summary>
+      <table>
+        <thead><tr><th scope="col">Day</th><th scope="col">Volume (lb)</th></tr></thead>
+        <tbody>
+          {% for d in days if d.volume %}
+            <tr><td><a href="{{ url_for('day', day_str=d.date) }}">{{ d.date|fromiso|history_date }}</a></td><td>{{ d.volume|volume }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+  {% else %}
+    <p class="empty small">No completed weight × reps sets in this range.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Sets per muscle group</h2>
+  <p class="hint">Completed sets in this range: primary muscle 1 per set, ancillary 0.5. Per week = total × 7 ÷ {{ n_days }} days.</p>
+  <table class="muscle-sets">
+    <thead><tr><th scope="col">Muscle group</th><th scope="col">Total</th><th scope="col">Per week</th></tr></thead>
+    <tbody>
+      {% for m in muscles %}
+        <tr{% if not m.total %} class="none"{% endif %}><th scope="row">{{ m.name }}</th><td>{{ m.total|trunc1 }}</td><td>{{ m.per_week|trunc1 }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<script type="application/json" id="volume-data">{{ days|tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='progress.js') }}"></script>
+{% endblock %}

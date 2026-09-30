@@ -1167,6 +1167,102 @@ def clear_day(day_str):
     return redirect(url_for("day", day_str=d.isoformat()))
 
 
+# ----- Progress -----
+
+PROGRESS_MAX_DAYS = 366
+
+
+def month_before(d):
+    """The same day one calendar month earlier, clamped to that month's length (Mar 31 -> Feb 28)."""
+    year, month = (d.year, d.month - 1) if d.month > 1 else (d.year - 1, 12)
+    last_day = (date(year + month // 12, month % 12 + 1, 1) - timedelta(days=1)).day
+    return date(year, month, min(d.day, last_day))
+
+
+def progress_range(args, today):
+    """(start, end, error) from ?start=&end= (YYYY-MM-DD). Defaults to the past month, ending today."""
+    try:
+        end = date.fromisoformat(args["end"]) if args.get("end") else today
+        start = date.fromisoformat(args["start"]) if args.get("start") else month_before(end)
+    except ValueError:
+        return month_before(today), today, "Dates should look like 2026-09-30."
+    if start > end:
+        return start, end, "The start date is after the end date."
+    if (end - start).days + 1 > PROGRESS_MAX_DAYS:
+        return start, end, f"Pick a range of at most {PROGRESS_MAX_DAYS} days."
+    return start, end, None
+
+
+@app.route("/progress")
+def progress():
+    """Daily volume (sum of weight × reps) and sets per muscle group over a date range.
+
+    Only completed sets count. Muscle sets use the same weighting as routine volume
+    planning (MUSCLE_SET_WEIGHTS: primary 1, ancillary 0.5) with each exercise's current
+    muscle groups; per week = total × 7 / days in range.
+    """
+    today = date.today()
+    start, end, error = progress_range(request.args, today)
+    if error:
+        flash(error, "error")
+        start, end = month_before(today), today
+    n_days = (end - start).days + 1
+    in_range = (LogExercise.date >= start, LogExercise.date <= end, LogSet.completed_at.is_not(None))
+
+    volume_by_day = dict(db.session.execute(
+        select(LogExercise.date, func.sum(LogSet.weight * LogSet.reps))
+        .join(LogSet)
+        .where(*in_range, LogSet.weight.is_not(None), LogSet.reps.is_not(None))
+        .group_by(LogExercise.date)
+    ).all())
+    days = [
+        {"date": (d := start + timedelta(days=i)).isoformat(), "volume": round(volume_by_day.get(d) or 0, 2)}
+        for i in range(n_days)
+    ]
+
+    sets_by_exercise = dict(db.session.execute(
+        select(LogExercise.exercise_id, func.count(LogSet.id)).join(LogSet).where(*in_range)
+        .group_by(LogExercise.exercise_id)
+    ).all())
+    muscle_sets = {}
+    for exercise in db.session.scalars(select(Exercise).where(Exercise.id.in_(sets_by_exercise))):
+        for em in exercise.muscles:
+            muscle_sets[em.muscle_group_id] = (
+                muscle_sets.get(em.muscle_group_id, 0) + sets_by_exercise[exercise.id] * MUSCLE_SET_WEIGHTS[em.role]
+            )
+    muscles = [
+        {"name": mg.name, "total": muscle_sets.get(mg.id, 0), "per_week": muscle_sets.get(mg.id, 0) * 7 / n_days}
+        for mg in ordered_muscle_groups()
+    ]
+
+    return render_template(
+        "progress.html",
+        start=start, end=end, today=today, n_days=n_days, days=days, muscles=muscles,
+        total_volume=sum(d["volume"] for d in days),
+        training_days=sum(1 for d in days if d["volume"]),
+        completed_sets=sum(sets_by_exercise.values()),
+        presets=[("Week", today - timedelta(days=6)), ("Month", month_before(today)),
+                 ("3 months", month_before(month_before(month_before(today))))],
+    )
+
+
+@app.template_filter("trunc1")
+def truncate_one_decimal(value):
+    """Cut off (not round) to one decimal: 8.1666 -> '8.1', 8.0 -> '8'."""
+    cut = math.floor(value * 10 + 1e-9) / 10
+    return f"{cut:g}"
+
+
+@app.template_filter("volume")
+def format_volume(value):
+    """Thousands-separated, cut off at one decimal: 12345.67 -> '12,345.6', 1200.0 -> '1,200'."""
+    cut = math.floor(value * 10 + 1e-9) / 10
+    return f"{cut:,.1f}".removesuffix(".0")
+
+
+app.add_template_filter(date.fromisoformat, "fromiso")
+
+
 @app.get("/api/calendar")
 def api_calendar():
     """Per-day set counts for a month: {"YYYY-MM-DD": {"sets": n, "done": n}}."""
