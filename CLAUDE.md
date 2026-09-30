@@ -38,6 +38,7 @@ When adding new models or features, extend `scripts/demo_data.py` so the demo se
 - JSON API under `/api/...` is used by the day view (set autosave, loading routines/workouts/exercises, reordering, calendar counts)
 - `scripts/` — dev utilities (demo data; `import_presets.py` loads target presets from `defaultOptions.ods`)
 - `migrations/` — Alembic migrations (`0001` baseline = the schema before migrations existed)
+- `mobile/` — the offline Capacitor app (TypeScript) replacing Flask; being ported on `feature/mobile-app`. Setup, build and emulator steps are in `agent-notes/mobile-app-plan.md`
 - `templates/_confirm_delete.html` + `static/confirm_delete.js` — shared delete confirmation, opened by any button with `data-confirm-delete="<POST url>" data-name="..."` (optional `data-title` to replace the question, `data-detail`, `data-blocked`)
 - `templates/_exercise_filter.html` + `static/exercise_filter.js` — shared exercise search with muscle / primary-ancillary filter for pickers
 - Routes: `/` → `/day` (today; `/day/<YYYY-MM-DD>` for others; `POST /day/<date>/clear`), `/progress` (`?start=&end=`), `/routines`, `/routines/new` and `/routines/<id>/edit`, `/workouts`, `/workouts/new` and `/workouts/<id>/edit` (builder), `/exercises`, `/exercises/<id>` (page with history), `/exercises/new` and `/exercises/<id>/edit`, `/presets/new` and `/presets/<id>/edit`; `POST .../<id>/delete` for each

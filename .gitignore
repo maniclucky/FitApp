@@ -27,3 +27,6 @@ instance/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Mobile app: copied from node_modules/sql.js by `npm install` (postinstall)
+mobile/public/assets/sql-wasm.wasm
