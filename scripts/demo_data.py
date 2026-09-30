@@ -19,12 +19,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import select  # noqa: E402
 
 from app import add_workout_to_day, app, build_workout_exercises, get_or_create_muscle  # noqa: E402
+from models import sync_muscle_groups  # noqa: E402
 from models import (  # noqa: E402
     TRACKING_MODES,
     Exercise,
     ExerciseMuscle,
     LogExercise,
+    MuscleGroup,
     Routine,
+    RoutineMuscleTarget,
     RoutineWorkout,
     Workout,
     WorkoutExercise,
@@ -35,24 +38,25 @@ DEMO_PREFIX = "[DEMO] "
 
 # name: (tracking modes, primary muscles, ancillary muscles)
 EXERCISES = {
-    "Barbell Bench Press": (["weight", "reps"], ["Chest"], ["Triceps", "Shoulders"]),
-    "Incline Dumbbell Press": (["weight", "reps"], ["Chest", "Shoulders"], ["Triceps"]),
-    "Overhead Press": (["weight", "reps"], ["Shoulders"], ["Triceps", "Traps", "Abs"]),
+    "Barbell Bench Press": (["weight", "reps"], ["Chest"], ["Triceps", "Front Deltoid"]),
+    "Incline Dumbbell Press": (["weight", "reps"], ["Chest", "Front Deltoid"], ["Triceps"]),
+    "Overhead Press": (["weight", "reps"], ["Front Deltoid"], ["Side Deltoid", "Triceps", "Traps", "Abs"]),
+    "Lateral Raise": (["weight", "reps"], ["Side Deltoid"], ["Traps"]),
     "Tricep Pushdown": (["weight", "reps"], ["Triceps"], []),
     "Pull-Up": (["weight", "reps"], ["Lats"], ["Biceps", "Upper Back", "Forearms"]),
-    "Barbell Row": (["weight", "reps"], ["Upper Back", "Lats"], ["Biceps", "Lower Back"]),
-    "Face Pull": (["weight", "reps"], ["Shoulders", "Upper Back"], ["Traps"]),
+    "Barbell Row": (["weight", "reps"], ["Upper Back", "Lats"], ["Biceps", "Rear Deltoid", "Lower Back"]),
+    "Face Pull": (["weight", "reps"], ["Rear Deltoid", "Upper Back"], ["Traps"]),
     "Dumbbell Curl": (["weight", "reps"], ["Biceps"], ["Forearms"]),
     "Back Squat": (["weight", "reps"], ["Quads", "Glutes"], ["Hamstrings", "Lower Back", "Abs"]),
     "Romanian Deadlift": (["weight", "reps"], ["Hamstrings", "Glutes"], ["Lower Back", "Forearms"]),
     "Walking Lunge": (["weight", "reps", "distance"], ["Quads", "Glutes"], ["Hamstrings", "Adductors", "Calves"]),
     "Standing Calf Raise": (["weight", "reps"], ["Calves"], []),
-    "Plank": (["time"], ["Abs"], ["Obliques", "Shoulders"]),
+    "Plank": (["time"], ["Abs"], ["Obliques", "Front Deltoid"]),
     "Hanging Leg Raise": (["reps"], ["Abs", "Hip Flexors"], ["Obliques", "Forearms"]),
     "Farmer's Carry": (["weight", "time", "distance"], ["Forearms", "Traps"], ["Abs", "Obliques"]),
     "Treadmill Run": (["time", "distance"], ["Quads", "Calves"], ["Hamstrings", "Glutes"]),
     "Rowing Machine": (["time", "distance"], ["Upper Back", "Lats"], ["Quads", "Biceps", "Hamstrings"]),
-    "Jump Rope": (["time"], ["Calves"], ["Shoulders", "Forearms"]),
+    "Jump Rope": (["time"], ["Calves"], ["Front Deltoid", "Forearms"]),
 }
 
 
@@ -85,6 +89,7 @@ WORKOUTS = {
         [("Barbell Bench Press", sets("6-8", "6-8", "6-8", "AMRAP"))],
         [("Incline Dumbbell Press", x(3, "8-12"))],
         [("Overhead Press", sets("6-10", "6-10", "8+"))],
+        [("Lateral Raise", x(3, "12-15"))],
         [("Tricep Pushdown", x(3, "12-15")), ("Face Pull", x(3, "15-20"))],
         [("Plank", x(3, ""))],
     ],
@@ -118,6 +123,15 @@ ROUTINES = {
     "Full Body A / B": ["Full Body Circuit", "Conditioning", "Full Body Circuit"],
 }
 
+# routine name: {muscle: target sets per pass}. A mix of under, met, and over target;
+# Full Body has none, to show the empty state.
+ROUTINE_TARGETS = {
+    "Push / Pull / Legs": {
+        "Chest": 10, "Front Deltoid": 6, "Side Deltoid": 8, "Rear Deltoid": 6, "Biceps": 6, "Triceps": 8, "Upper Back": 12, "Lats": 10,
+        "Abs": 12, "Glutes": 10, "Quads": 12, "Hamstrings": 8, "Calves": 6,
+    },
+}
+
 
 # ---- Logged history ----
 
@@ -128,7 +142,7 @@ SCHEDULE = {0: "Push Day", 2: "Pull Day", 4: "Leg Day", 5: "Conditioning"}
 # Starting working weight (lb) and weekly increase; missing = bodyweight/no weight.
 WEIGHTS = {
     "Barbell Bench Press": (135, 5), "Incline Dumbbell Press": (45, 2.5), "Overhead Press": (85, 2.5),
-    "Tricep Pushdown": (40, 2.5), "Barbell Row": (115, 5), "Face Pull": (30, 2.5),
+    "Tricep Pushdown": (40, 2.5), "Lateral Raise": (15, 2.5), "Barbell Row": (115, 5), "Face Pull": (30, 2.5),
     "Dumbbell Curl": (25, 2.5), "Back Squat": (185, 10), "Romanian Deadlift": (155, 5),
     "Walking Lunge": (30, 2.5), "Standing Calf Raise": (90, 5), "Farmer's Carry": (50, 5),
 }
@@ -265,10 +279,18 @@ def seed():
         workouts[name] = workout
     db.session.flush()
 
+    muscle_ids = {m.name: m.id for m in db.session.scalars(select(MuscleGroup))}
     for name, workout_names in ROUTINES.items():
-        db.session.add(Routine(name=DEMO_PREFIX + name, workouts=[
-            RoutineWorkout(workout=workouts[w], position=n) for n, w in enumerate(workout_names, start=1)
-        ]))
+        targets = ROUTINE_TARGETS.get(name)
+        db.session.add(Routine(
+            name=DEMO_PREFIX + name,
+            workouts=[RoutineWorkout(workout=workouts[w], position=n) for n, w in enumerate(workout_names, start=1)],
+            # Like a routine saved in the UI: one row per muscle group, None where there's no target.
+            targets=[
+                RoutineMuscleTarget(muscle_group_id=mg_id, sets=targets.get(mg_name))
+                for mg_name, mg_id in muscle_ids.items()
+            ] if targets else [],
+        ))
 
     sessions = seed_history(workouts)
     db.session.commit()
@@ -284,3 +306,4 @@ if __name__ == "__main__":
         remove()
         if not args.remove:
             seed()
+        sync_muscle_groups()  # drop retired groups (e.g. Shoulders) the old demo data was holding onto

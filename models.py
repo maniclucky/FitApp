@@ -6,13 +6,25 @@ db = SQLAlchemy()
 
 TRACKING_MODES = ["weight", "reps", "time", "distance"]
 MUSCLE_ROLES = ["primary", "ancillary"]
+# How much one set counts toward a muscle's volume, by the muscle's role in the exercise.
+MUSCLE_SET_WEIGHTS = {"primary": 1, "ancillary": 0.5}
 
-# Seeded on first run, in rough head-to-toe order (display order follows id).
+# Created at startup if missing. Display order follows this list (head to toe); custom
+# groups come after, in the order they were created.
 DEFAULT_MUSCLE_GROUPS = [
-    "Chest", "Shoulders", "Biceps", "Triceps", "Forearms",
+    "Chest", "Front Deltoid", "Side Deltoid", "Rear Deltoid", "Biceps", "Triceps", "Forearms",
     "Upper Back", "Lats", "Traps", "Lower Back", "Abs", "Obliques",
     "Glutes", "Hip Flexors", "Quads", "Hamstrings", "Adductors", "Abductors", "Calves",
 ]
+# Former defaults, removed at startup once nothing references them ("Shoulders" was split
+# into front/side/rear deltoid). If still in use they stay, shown as custom groups.
+RETIRED_MUSCLE_GROUPS = ["Shoulders"]
+_DEFAULT_ORDER = {name.lower(): i for i, name in enumerate(DEFAULT_MUSCLE_GROUPS)}
+
+
+def muscle_sort_key(muscle_group):
+    """Defaults in DEFAULT_MUSCLE_GROUPS order, then custom groups by creation (id)."""
+    return (_DEFAULT_ORDER.get(muscle_group.name.lower(), len(_DEFAULT_ORDER)), muscle_group.id)
 
 
 def utcnow():
@@ -63,7 +75,7 @@ class Exercise(db.Model):
     def muscle_names(self, role):
         ordered = sorted(
             (em for em in self.muscles if em.role == role),
-            key=lambda em: em.muscle_group_id,
+            key=lambda em: muscle_sort_key(em.muscle_group),
         )
         return [em.muscle_group.name for em in ordered]
 
@@ -88,10 +100,23 @@ class ExerciseMuscle(db.Model):
     muscle_group = db.relationship("MuscleGroup")
 
 
-def seed_muscle_groups():
-    if db.session.query(MuscleGroup.id).first() is None:
-        db.session.add_all(MuscleGroup(name=n) for n in DEFAULT_MUSCLE_GROUPS)
-        db.session.commit()
+def ordered_muscle_groups():
+    return sorted(db.session.scalars(db.select(MuscleGroup)).all(), key=muscle_sort_key)
+
+
+def sync_muscle_groups():
+    """Create missing default muscle groups and drop retired ones that nothing references."""
+    existing = {m.name.lower(): m for m in db.session.scalars(db.select(MuscleGroup)).all()}
+    db.session.add_all(MuscleGroup(name=n) for n in DEFAULT_MUSCLE_GROUPS if n.lower() not in existing)
+    for name in RETIRED_MUSCLE_GROUPS:
+        muscle = existing.get(name.lower())
+        in_use = muscle is not None and any(
+            db.session.query(model).filter_by(muscle_group_id=muscle.id).first() is not None
+            for model in (ExerciseMuscle, MuscleTargetDefault, RoutineMuscleTarget)
+        )
+        if muscle is not None and not in_use:
+            db.session.delete(muscle)
+    db.session.commit()
 
 
 class Workout(db.Model):
@@ -187,6 +212,7 @@ class Routine(db.Model):
         order_by="RoutineWorkout.position",
         cascade="all, delete-orphan",
     )
+    targets = db.relationship("RoutineMuscleTarget", cascade="all, delete-orphan")
 
 
 class RoutineWorkout(db.Model):
@@ -201,6 +227,32 @@ class RoutineWorkout(db.Model):
 
     routine = db.relationship("Routine", back_populates="workouts")
     workout = db.relationship("Workout")
+
+
+class MuscleTargetDefault(db.Model):
+    """Default target sets per muscle group, used to prefill a routine's targets.
+
+    Nothing is seeded: the user defines these values.
+    """
+
+    muscle_group_id = db.Column(db.ForeignKey("muscle_group.id"), primary_key=True)
+    sets = db.Column(db.Float, nullable=False)
+
+    __table_args__ = (db.CheckConstraint("sets >= 0", name="ck_muscle_target_default_sets"),)
+
+
+class RoutineMuscleTarget(db.Model):
+    """How many sets per pass through the routine the user wants for a muscle group.
+
+    Saving a routine writes a row for every muscle group; sets is NULL when the user left it
+    blank. A routine with no rows yet (never saved with targets) shows the defaults instead.
+    """
+
+    routine_id = db.Column(db.ForeignKey("routine.id"), primary_key=True)
+    muscle_group_id = db.Column(db.ForeignKey("muscle_group.id"), primary_key=True)
+    sets = db.Column(db.Float)
+
+    __table_args__ = (db.CheckConstraint("sets IS NULL OR sets >= 0", name="ck_routine_muscle_target_sets"),)
 
 
 class LogExercise(db.Model):

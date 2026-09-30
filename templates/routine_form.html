@@ -22,12 +22,39 @@
            placeholder="e.g. Push / Pull / Legs" value="{{ name }}">
   </div>
 
-  <div class="field">
-    <span class="field-label">Workouts</span>
+  <div class="segmented two" role="tablist" aria-label="Routine sections">
+    <button type="button" role="tab" id="tab-workouts" aria-controls="panel-workouts" aria-selected="true" data-tab="workouts">Workouts</button>
+    <button type="button" role="tab" id="tab-analytics" aria-controls="panel-analytics" aria-selected="false" tabindex="-1" data-tab="analytics">Analytics</button>
+  </div>
+
+  <div class="field" role="tabpanel" id="panel-workouts" aria-labelledby="tab-workouts">
     <p class="hint">In the order you do them. A workout can appear more than once.</p>
     <ol class="builder-list" id="routine-list"></ol>
     <p class="empty small" id="routine-empty">No workouts yet.</p>
     <button type="button" class="button subtle block" id="open-picker">+ Add workout</button>
+  </div>
+
+  <div class="field" role="tabpanel" id="panel-analytics" aria-labelledby="tab-analytics" hidden>
+    <p class="hint">Sets per muscle group across one pass through the routine. A primary muscle counts
+      {{ muscle_set_weights.primary }} per set; an ancillary muscle counts {{ muscle_set_weights.ancillary }}.
+      Enter the total you want for each group; the bar fills toward it.</p>
+    <ul class="muscle-volume" id="muscle-volume">
+      {% for mg in muscle_groups %}
+        <li data-muscle="{{ mg.name }}">
+          <div class="mv-head">
+            <label class="mv-name" for="target-{{ mg.id }}">{{ mg.name }}</label>
+            <span class="mv-total"><span data-total>0</span> <span class="mv-unit">of</span>
+              <input type="text" inputmode="decimal" autocomplete="off" maxlength="6"
+                     class="mv-target{% if mg.id in bad_targets %} invalid{% endif %}"
+                     id="target-{{ mg.id }}" name="target-{{ mg.id }}" value="{{ targets.get(mg.id, '') }}"
+                     placeholder="–" aria-label="Target sets for {{ mg.name }}">
+              <span class="mv-unit">sets</span></span>
+          </div>
+          <div class="mv-bar" aria-hidden="true"><span></span></div>
+          <div class="mv-detail" data-detail></div>
+        </li>
+      {% endfor %}
+    </ul>
   </div>
 
   <input type="hidden" name="workout_ids" id="workout-ids-input">
@@ -55,6 +82,7 @@
 </dialog>
 
 <script type="application/json" id="workout-options">{{ workout_options|tojson }}</script>
+<script type="application/json" id="muscle-set-weights">{{ muscle_set_weights|tojson }}</script>
 <script type="application/json" id="initial-workout-ids">{{ workout_ids|tojson }}</script>
 {% endblock %}
 

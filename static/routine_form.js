@@ -1,5 +1,8 @@
 // Routine editor: the routine is an ordered array of workout ids (repeats allowed),
 // re-rendered on every change and serialized into the hidden "workout_ids" field on submit.
+// The Analytics tab totals sets per muscle group live from that array (each set counts
+// MUSCLE_SET_WEIGHTS[role], primary 1 / ancillary 0.5) and compares them with the per-muscle
+// target inputs, which are submitted with the form.
 (function () {
   const options = JSON.parse(document.getElementById("workout-options").textContent);
   const byId = new Map(options.map((o) => [o.id, o]));
@@ -29,7 +32,79 @@
       </li>`;
     }).join("");
     empty.hidden = ids.length > 0;
+    renderAnalytics();
   }
+
+  // ----- Analytics -----
+  // Rows and target inputs are server-rendered (so they submit with the form); this only
+  // updates the totals and bars. A bar fills toward the row's target and turns amber past
+  // it; with no target there's nothing to fill toward, so the bar is hidden.
+
+  const weights = JSON.parse(document.getElementById("muscle-set-weights").textContent);
+  const volumeList = document.getElementById("muscle-volume");
+  const fmt = (n) => String(Math.round(n * 100) / 100);
+
+  function readTarget(input) {
+    const raw = input.value.trim();
+    const n = Number(raw);
+    return raw === "" || !Number.isFinite(n) || n < 0 ? null : n;
+  }
+
+  function renderAnalytics() {
+    const raw = new Map();
+    for (const id of ids) {
+      for (const [muscle, counts] of Object.entries(byId.get(id).muscles)) {
+        const c = raw.get(muscle) || { primary: 0, ancillary: 0 };
+        c.primary += counts.primary;
+        c.ancillary += counts.ancillary;
+        raw.set(muscle, c);
+      }
+    }
+    for (const row of volumeList.children) {
+      const c = raw.get(row.dataset.muscle) || { primary: 0, ancillary: 0 };
+      const total = c.primary * weights.primary + c.ancillary * weights.ancillary;
+      const target = readTarget(row.querySelector(".mv-target"));
+      row.querySelector("[data-total]").textContent = fmt(total);
+      const parts = [];
+      if (c.primary) parts.push(`${c.primary} primary`);
+      if (c.ancillary) parts.push(`${c.ancillary} ancillary`);
+      if (target != null && total > target) parts.push(`${fmt(total - target)} over`);
+      row.querySelector("[data-detail]").textContent = parts.join(" · ");
+      const fill = target == null ? 0 : target === 0 ? (total > 0 ? 1 : 0) : Math.min(1, total / target);
+      row.querySelector(".mv-bar span").style.width = `${fill * 100}%`;
+      row.classList.toggle("no-target", target == null);
+      row.classList.toggle("met", target != null && total >= target);
+      row.classList.toggle("over", target != null && total > target);
+      row.classList.toggle("none", total === 0 && target == null);
+    }
+  }
+
+  volumeList.addEventListener("input", (e) => {
+    if (e.target.classList.contains("mv-target")) {
+      e.target.classList.remove("invalid");
+      renderAnalytics();
+    }
+  });
+
+  // ----- Tabs -----
+
+  const tabs = [...document.querySelectorAll("[data-tab]")];
+  function showTab(key) {
+    for (const tab of tabs) {
+      const on = tab.dataset.tab === key;
+      tab.setAttribute("aria-selected", String(on));
+      tab.tabIndex = on ? 0 : -1;
+      document.getElementById(`panel-${tab.dataset.tab}`).hidden = !on;
+    }
+  }
+  for (const tab of tabs) tab.addEventListener("click", () => showTab(tab.dataset.tab));
+  tabs[0].parentElement.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const i = tabs.findIndex((t) => t.getAttribute("aria-selected") === "true");
+    const next = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+    showTab(next.dataset.tab);
+    next.focus();
+  });
 
   list.addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-act]");

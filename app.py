@@ -8,20 +8,24 @@ from sqlalchemy import func, select, update
 
 from models import (
     MUSCLE_ROLES,
+    MUSCLE_SET_WEIGHTS,
     TRACKING_MODES,
     Exercise,
     ExerciseMuscle,
     LogExercise,
     LogSet,
     MuscleGroup,
+    MuscleTargetDefault,
     Routine,
+    RoutineMuscleTarget,
     RoutineWorkout,
     Workout,
     WorkoutExercise,
     WorkoutSet,
     db,
     group_blocks,
-    seed_muscle_groups,
+    ordered_muscle_groups,
+    sync_muscle_groups,
     utcnow,
 )
 
@@ -33,7 +37,7 @@ db.init_app(app)
 
 with app.app_context():
     db.create_all()
-    seed_muscle_groups()
+    sync_muscle_groups()
 
 
 def clean_name(value, max_len):
@@ -165,7 +169,7 @@ def exercise_form(exercise_id=None):
             return redirect(url_for("exercises"))
 
     # Known muscle groups, plus any custom ones from a rejected submission.
-    muscles = list(db.session.scalars(select(MuscleGroup.name).order_by(MuscleGroup.id)))
+    muscles = [m.name for m in ordered_muscle_groups()]
     known = {m.lower() for m in muscles}
     for name in form["primary"] + form["ancillary"]:
         if name.lower() not in known:
@@ -335,7 +339,7 @@ def exercise_picker_data(exercises):
         for e in exercises
     ]
     used = {m.lower() for o in options for role in MUSCLE_ROLES for m in o[role]}
-    muscles = [m for m in db.session.scalars(select(MuscleGroup.name).order_by(MuscleGroup.id)) if m.lower() in used]
+    muscles = [m.name for m in ordered_muscle_groups() if m.name.lower() in used]
     return options, muscles
 
 
@@ -430,17 +434,37 @@ def parse_routine_workout_ids(raw, workouts_by_id):
     return ids, errors
 
 
+def workout_muscle_sets(workout):
+    """{muscle name: {"primary": sets, "ancillary": sets}} for one workout (raw set counts)."""
+    totals = {}
+    for wx in workout.exercises:
+        for em in wx.exercise.muscles:
+            counts = totals.setdefault(em.muscle_group.name, dict.fromkeys(MUSCLE_ROLES, 0))
+            counts[em.role] += len(wx.sets)
+    return totals
+
+
+def initial_muscle_targets(routine):
+    """{muscle_group_id: sets or None}: the routine's saved targets, or the defaults if it has none."""
+    if routine and routine.targets:
+        return {t.muscle_group_id: t.sets for t in routine.targets}
+    return {d.muscle_group_id: d.sets for d in db.session.scalars(select(MuscleTargetDefault))}
+
+
 @app.route("/routines/new", methods=["GET", "POST"])
 @app.route("/routines/<int:routine_id>/edit", methods=["GET", "POST"])
 def routine_form(routine_id=None):
     routine = db.get_or_404(Routine, routine_id) if routine_id is not None else None
     all_workouts = db.session.scalars(select(Workout).order_by(Workout.name)).all()
     workouts_by_id = {w.id: w for w in all_workouts}
-    errors = []
+    muscle_groups = ordered_muscle_groups()
+    errors, bad_targets = [], set()
     if routine:
         name, workout_ids = routine.name, [rw.workout_id for rw in routine.workouts]
     else:
         name, workout_ids = "", []
+    # Values shown in the target inputs, as text so a rejected entry is re-shown as typed.
+    targets = {mg_id: format_number(v) for mg_id, v in initial_muscle_targets(routine).items()}
 
     if request.method == "POST":
         name = clean_name(request.form.get("name", ""), 100)
@@ -455,17 +479,32 @@ def routine_form(routine_id=None):
         if not workout_ids and not errors:
             errors.append("Add at least one workout.")
 
+        parsed_targets = {}
+        for mg in muscle_groups:
+            raw = request.form.get(f"target-{mg.id}", "").strip()
+            targets[mg.id] = raw
+            try:
+                parsed_targets[mg.id] = parse_log_value(raw, f"{mg.name} target", integer=False, maximum=999)
+            except ValueError as e:
+                errors.append(str(e))
+                bad_targets.add(mg.id)
+
         if not errors:
             if routine:
                 routine.name = name
-                # Flush the deletes first so new rows don't collide on the (routine, position) unique key.
+                # Flush the deletes first so new rows don't collide on the unique/primary keys.
                 routine.workouts.clear()
+                routine.targets.clear()
                 db.session.flush()
             else:
                 routine = Routine(name=name)
                 db.session.add(routine)
             routine.workouts.extend(
                 RoutineWorkout(workout_id=wid, position=n) for n, wid in enumerate(workout_ids, start=1)
+            )
+            # One row per muscle, blanks included, so a cleared target stays cleared.
+            routine.targets.extend(
+                RoutineMuscleTarget(muscle_group_id=mg_id, sets=sets) for mg_id, sets in parsed_targets.items()
             )
             db.session.commit()
             flash(f"Saved \u201c{routine.name}\u201d.")
@@ -478,8 +517,13 @@ def routine_form(routine_id=None):
         workout_ids=workout_ids,
         errors=errors,
         workout_options=[
-            {"id": w.id, "name": w.name, "count": len(w.exercises)} for w in all_workouts
+            {"id": w.id, "name": w.name, "count": len(w.exercises), "muscles": workout_muscle_sets(w)}
+            for w in all_workouts
         ],
+        muscle_groups=muscle_groups,
+        targets=targets,
+        bad_targets=bad_targets,
+        muscle_set_weights=MUSCLE_SET_WEIGHTS,
     ), (400 if errors else 200)
 
 
