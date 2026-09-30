@@ -13,19 +13,25 @@ Last updated: 2026-09-30
 ## Decisions
 - **Chips, not free-text hashtags, for muscles**: the user first suggested hashtags. We chose preset tappable chips with an "Add" box for custom names instead, because free-typed tags drift (#quad / #quads / #quadriceps), and that would break later filtering and volume totals by muscle.
 - **Tracking modes as boolean columns**: the set is small and fixed. If modes ever need to be user-defined, move them to a join table.
-- **No migrations yet**: the app calls `db.create_all()` at startup, which creates missing tables but does NOT change existing ones. Any schema change means either adding Flask-Migrate (preferred once real data matters) or deleting `instance/fitapp.db` during early development. Ask the user before deleting it.
+- **Schema changes go through Flask-Migrate / Alembic** (`migrations/`, added 2026-09-30). The app runs `init_db()` at startup: it stamps a pre-migration database (one with tables but no recorded revision, including an *empty* `alembic_version` table) as the baseline `0001`, runs `upgrade()`, then `sync_muscle_groups()`. To change the schema:
+  1. Edit `models.py`.
+  2. Run `FITAPP_SKIP_INIT=1 FITAPP_DATABASE_URI=sqlite:////tmp/x.db FLASK_APP=app.py .venv/bin/flask db upgrade` on a throwaway database, then the same command with `db migrate --rev-id 000N -m "..."` instead of `db upgrade`.
+  3. Read the generated file, and rehearse it on a copy of `instance/fitapp.db` before starting the real app.
+  - `FITAPP_SKIP_INIT` stops startup from touching the database; `flask db migrate` needs it untouched.
+  - `render_as_batch=True` is on because SQLite can't ALTER most things. A batch change that *rebuilds* a table (anything beyond adding a nullable column) must be checked, because SQLite CHECK constraints may not survive the table copy. That's why the new target columns rely on app validation rather than CHECKs.
+  - `FITAPP_DATABASE_URI` also lets tests run against a copy (`sqlite:////path/copy.db`) instead of backing up and restoring the real database.
 - **No CSRF protection yet**: acceptable while the app is localhost-only. Add Flask-WTF/CSRF before exposing it anywhere.
 
 ## Exercise edit/delete rules
 - `/exercises/<id>/edit` reuses the exercise form (`exercise_form` view). Saving replaces the exercise's muscle links (clear, flush, re-add).
-- If an edit turns **reps tracking off**, rep targets (min/max/AMRAP) on that exercise's workout sets are cleared, so workouts don't keep stale targets.
+- If an edit turns a **tracking mode off**, that mode's targets (reps min/max/AMRAP, weight, time or distance) are cleared from the exercise's workout sets, so workouts don't keep stale targets.
 - **Deleting is blocked while any workout uses the exercise or any day has it logged** (`exercise_delete_blocker` in `app.py`). The panel shows which workouts use it and offers no Delete button, and the server refuses it too (flash error). This was chosen over silently removing the exercise from those workouts.
 
 ## Workouts (templates built in the workout builder)
 - **workout**: `name` is unique and case-insensitive (`NOCASE`). A workout is a plan; logging actual performance will need separate tables later.
 - **workout_exercise**: one exercise slot in a workout, ordered by `position`. The same exercise can appear more than once. `superset_group` is a nullable int; consecutive slots that share a value form a superset. Groups are always contiguous (the save code guarantees this) and chains of 3+ are allowed. `Workout.blocks` groups slots for display.
 - **workout_set**: one planned set, ordered by `position`, with `reps_min` and `reps_max` (each optional) and `is_amrap`. CHECK constraints: AMRAP means both bounds are NULL, min ≤ max, and min ≥ 1. Exercises that don't track reps keep only the set count; their reps and AMRAP values are ignored and stored as NULL/false.
-- The builder UI has no targets for weight, time or distance yet; only the rep range is planned. Weight, time and distance are entered in the day view when the workout is performed.
+- **Set targets (user requirement)**: `workout_set` also has optional `weight` (lb), `duration_seconds` and `distance` (mi) targets. The builder shows one column per mode the exercise tracks, in TRACKING_MODES order, like the day view. Weight/time/distance are edited as text; time takes `1:30` or microwave digits (`static/time_format.js`, shared with the day view and mirrored by `parse_duration`). The server parses and validates them (`SET_TARGETS`, `parse_set_target`) and ignores fields for modes the exercise doesn't track. Summaries read like `3 × 8–12 @ 135 lb`, `1 × 25:00 · 3 mi`, or `4 sets: 6–8, 6–8, 6–8, AMRAP @ 135 lb` (a shared weight is stated once).
 
 ## Workout builder behavior (`static/workout_builder.js`)
 - The page keeps the workout in a JS array and posts it as JSON in the hidden `items` field. The server (`parse_workout_items` in `app.py`) validates everything again. On an error it re-renders the page with the normalized items, so nothing the user entered is lost.
@@ -53,7 +59,7 @@ Last updated: 2026-09-30
 
 ## Day log (the day view, `/day/<YYYY-MM-DD>`)
 - **log_exercise**: one exercise entry on a calendar `date`, ordered by `position` (unique per date, gaps allowed). `superset_group` is unique within a date, and loading a workout remaps its groups so two loaded workouts never merge. `workout_id` is informational only and nullable.
-- **log_set**: `target_reps_min`, `target_reps_max` and `target_amrap` are **copied from the plan when the workout is loaded**, so editing or deleting the plan never changes history. Actual values are `weight` (lb), `reps`, `duration_seconds` and `distance` (mi), all nullable and ≥ 0. `completed_at` is NULL when the set isn't done.
+- **log_set**: `target_reps_min`, `target_reps_max`, `target_amrap`, `target_weight`, `target_duration_seconds` and `target_distance` are **copied from the plan when the workout is loaded**, so editing or deleting the plan never changes history. The day view shows them as field placeholders; they aren't prefilled as values, so a ✓ on an untouched field still records nothing. "+ Set" copies the previous set's targets. Actual values are `weight` (lb), `reps`, `duration_seconds` and `distance` (mi), all nullable and ≥ 0. `completed_at` is NULL when the set isn't done.
 - Units are fixed at lb and mi for now (labels only, no conversion). If the user wants kg/km, add a units setting before much real data exists.
 - Reordering: `POST /api/day/<date>/order` takes every log_exercise id on that day in the new order. It refuses a stale list (409) or a split superset (400), and it parks positions on negatives before renumbering so the (date, position) unique key never collides.
 - Adding exercises (`POST /api/day/<date>/exercises`, `{"exercise_ids": [...]}`, in pick order) creates 3 empty sets per exercise, or 1 set if the exercise doesn't track reps. "+ Set" copies the previous set's targets. "− Set" removes the last set, but refuses if it's completed or it's the only set.

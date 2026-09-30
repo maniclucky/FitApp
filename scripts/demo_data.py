@@ -83,15 +83,20 @@ def x(n, spec):
     return sets(*[spec] * n)
 
 
+def at(set_list, weight=None, time=None, distance=None):
+    """Add weight (lb), time (seconds), and distance (mi) targets to every set in set_list."""
+    return [{**s, "weight": weight, "time": time, "distance": distance} for s in set_list]
+
+
 # name: list of blocks; a block with several (exercise, sets) entries is a superset.
 WORKOUTS = {
     "Push Day": [
-        [("Barbell Bench Press", sets("6-8", "6-8", "6-8", "AMRAP"))],
+        [("Barbell Bench Press", at(sets("6-8", "6-8", "6-8", "AMRAP"), weight=135))],
         [("Incline Dumbbell Press", x(3, "8-12"))],
         [("Overhead Press", sets("6-10", "6-10", "8+"))],
         [("Lateral Raise", x(3, "12-15"))],
         [("Tricep Pushdown", x(3, "12-15")), ("Face Pull", x(3, "15-20"))],
-        [("Plank", x(3, ""))],
+        [("Plank", at(x(3, ""), time=60))],
     ],
     "Pull Day": [
         [("Pull-Up", sets("5+", "5+", "AMRAP"))],
@@ -107,12 +112,12 @@ WORKOUTS = {
     ],
     "Full Body Circuit": [
         [("Back Squat", x(3, "10")), ("Pull-Up", x(3, "AMRAP")), ("Barbell Bench Press", x(3, "10"))],
-        [("Farmer's Carry", x(3, ""))],
-        [("Jump Rope", x(3, ""))],
+        [("Farmer's Carry", at(x(3, ""), weight=50, time=45))],
+        [("Jump Rope", at(x(3, ""), time=90))],
     ],
     "Conditioning": [
-        [("Treadmill Run", x(1, ""))],
-        [("Rowing Machine", x(2, ""))],
+        [("Treadmill Run", at(x(1, ""), time=25 * 60, distance=3))],
+        [("Rowing Machine", at(x(2, ""), distance=1.5))],
         [("Plank", x(2, "")), ("Hanging Leg Raise", x(2, "AMRAP"))],
     ],
 }

@@ -1,10 +1,13 @@
 import json
 import math
 import os
+import re
 from datetime import date, timedelta
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
-from sqlalchemy import func, select, update
+from alembic.runtime.migration import MigrationContext
+from flask_migrate import Migrate, stamp, upgrade
+from sqlalchemy import func, inspect, select, update
 
 from models import (
     MUSCLE_ROLES,
@@ -23,6 +26,7 @@ from models import (
     WorkoutExercise,
     WorkoutSet,
     db,
+    format_duration,
     group_blocks,
     ordered_muscle_groups,
     sync_muscle_groups,
@@ -30,14 +34,32 @@ from models import (
 )
 
 app = Flask(__name__)
-# Relative SQLite paths resolve to Flask's instance/ folder.
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///fitapp.db"
+# Relative SQLite paths resolve to Flask's instance/ folder. FITAPP_DATABASE_URI points the app
+# at another database (tests, generating migrations).
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("FITAPP_DATABASE_URI", "sqlite:///fitapp.db")
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-not-secret")
 db.init_app(app)
+# Batch mode: SQLite can't ALTER most things in place, so Alembic copies the table instead.
+migrate = Migrate(app, db, render_as_batch=True)
 
-with app.app_context():
-    db.create_all()
+# The first migration; its schema is what db.create_all() built before migrations existed.
+BASELINE_REVISION = "0001"
+
+
+def init_db():
+    """Bring the database schema up to date, then sync the default muscle groups."""
+    with db.engine.connect() as conn:
+        current = MigrationContext.configure(conn).get_current_revision()
+    if current is None and set(inspect(db.engine).get_table_names()) - {"alembic_version"}:
+        stamp(revision=BASELINE_REVISION)  # a pre-migrations database already has the baseline schema
+    upgrade()
     sync_muscle_groups()
+
+
+# FITAPP_SKIP_INIT=1 is for `flask db migrate`, which must see the database untouched.
+if not os.environ.get("FITAPP_SKIP_INIT"):
+    with app.app_context():
+        init_db()
 
 
 def clean_name(value, max_len):
@@ -155,14 +177,20 @@ def exercise_form(exercise_id=None):
                     exercise.muscles.append(
                         ExerciseMuscle(muscle_group=get_or_create_muscle(name), role=role)
                     )
-            if exercise.id is not None and not exercise.tracks_reps:
-                # Rep targets are meaningless once reps aren't tracked; don't leave stale ones in workouts.
+            # Targets for a mode the exercise no longer tracks are meaningless; clear them from workouts.
+            stale = {}
+            if not exercise.tracks_reps:
+                stale.update(reps_min=None, reps_max=None, is_amrap=False)
+            for field, mode in SET_TARGETS.values():
+                if not getattr(exercise, f"tracks_{mode}"):
+                    stale[field] = None
+            if exercise.id is not None and stale:
                 db.session.execute(
                     update(WorkoutSet)
                     .where(WorkoutSet.workout_exercise_id.in_(
                         select(WorkoutExercise.id).where(WorkoutExercise.exercise_id == exercise.id)
                     ))
-                    .values(reps_min=None, reps_max=None, is_amrap=False)
+                    .values(**stale)
                 )
             db.session.commit()
             flash(f"Saved \u201c{exercise.name}\u201d.")
@@ -231,6 +259,48 @@ def parse_reps(value):
     return n
 
 
+def parse_duration(value, label):
+    """Seconds from an int, 'm:ss', or microwave-style digits ('130' -> 90); blank -> None.
+
+    Mirrors parseTime in static/time_format.js. Raises ValueError with a user message.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        seconds = value
+    elif isinstance(value, str) and re.fullmatch(r"\d*:\d{1,2}", value.strip()):
+        minutes, secs = value.strip().split(":")
+        seconds = int(minutes or 0) * 60 + int(secs)
+    elif isinstance(value, str) and value.strip().isdigit():
+        padded = value.strip().zfill(3)
+        seconds = int(padded[:-2]) * 60 + int(padded[-2:])
+    else:
+        raise ValueError(f"{label}: time should look like 1:30.")
+    if not 0 <= seconds <= 86_400:
+        raise ValueError(f"{label}: time must be at most 24 hours.")
+    return seconds
+
+
+# Planned-set targets other than reps: builder JSON key -> (WorkoutSet/LogSet field, tracking mode).
+SET_TARGETS = {
+    "weight": ("weight", "weight"),
+    "time": ("duration_seconds", "time"),
+    "distance": ("distance", "distance"),
+}
+
+
+def parse_set_target(key, value, label):
+    if key == "time":
+        return parse_duration(value, label)
+    if isinstance(value, str):
+        value = value.strip()
+    name, maximum = ("Weight", 10_000) if key == "weight" else ("Distance", 1_000)
+    try:
+        return parse_log_value(value, name, integer=False, maximum=maximum)
+    except ValueError as e:
+        raise ValueError(f"{label}: {str(e)[0].lower()}{str(e)[1:]}") from None
+
+
 def parse_workout_items(raw, exercises_by_id):
     """Validate the builder's JSON payload.
 
@@ -267,7 +337,15 @@ def parse_workout_items(raw, exercises_by_id):
                     lo = hi = None
                 if lo is not None and hi is not None and lo > hi:
                     errors.append(f"{exercise.name}, set {n}: minimum reps can\u2019t exceed maximum.")
-            sets.append({"min": lo, "max": hi, "amrap": amrap})
+            targets = {}
+            for key, (_, mode) in SET_TARGETS.items():
+                targets[key] = None
+                if getattr(exercise, f"tracks_{mode}"):
+                    try:
+                        targets[key] = parse_set_target(key, raw_set.get(key), f"{exercise.name}, set {n}")
+                    except ValueError as e:
+                        errors.append(str(e))
+            sets.append({"min": lo, "max": hi, "amrap": amrap, **targets})
         if not sets:
             errors.append(f"{exercise.name} needs at least one set.")
         items.append({
@@ -292,7 +370,11 @@ def workout_to_items(workout):
                 and i + 1 < len(slots)
                 and slots[i + 1].superset_group == wx.superset_group
             ),
-            "sets": [{"min": s.reps_min, "max": s.reps_max, "amrap": s.is_amrap} for s in wx.sets],
+            "sets": [
+                {"min": s.reps_min, "max": s.reps_max, "amrap": s.is_amrap,
+                 **{key: getattr(s, field) for key, (field, _) in SET_TARGETS.items()}}
+                for s in wx.sets
+            ],
         }
         for i, wx in enumerate(slots)
     ]
@@ -312,7 +394,10 @@ def build_workout_exercises(items):
             position=position,
             superset_group=group,
             sets=[
-                WorkoutSet(position=n, reps_min=s["min"], reps_max=s["max"], is_amrap=s["amrap"])
+                WorkoutSet(
+                    position=n, reps_min=s["min"], reps_max=s["max"], is_amrap=s["amrap"],
+                    **{field: s.get(key) for key, (field, _) in SET_TARGETS.items()},
+                )
                 for n, s in enumerate(item["sets"], start=1)
             ],
         ))
@@ -555,11 +640,7 @@ def format_number(value):
     return f"{value:g}" if isinstance(value, float) else str(value)
 
 
-@app.template_filter("mmss")
-def format_duration(seconds):
-    if seconds is None:
-        return ""
-    return f"{seconds // 60}:{seconds % 60:02d}"
+app.add_template_filter(format_duration, "mmss")
 
 
 def parse_day(value):
@@ -674,7 +755,8 @@ def add_workout_to_day(d, workout):
             superset_group=group,
             sets=[
                 LogSet(position=n, target_reps_min=ws.reps_min, target_reps_max=ws.reps_max,
-                       target_amrap=ws.is_amrap)
+                       target_amrap=ws.is_amrap, target_weight=ws.weight,
+                       target_duration_seconds=ws.duration_seconds, target_distance=ws.distance)
                 for n, ws in enumerate(wx.sets, start=1)
             ],
         )
@@ -845,6 +927,9 @@ def api_add_log_set(lx_id):
         target_reps_min=last.target_reps_min if last else None,
         target_reps_max=last.target_reps_max if last else None,
         target_amrap=last.target_amrap if last else False,
+        target_weight=last.target_weight if last else None,
+        target_duration_seconds=last.target_duration_seconds if last else None,
+        target_distance=last.target_distance if last else None,
     )
     lx.sets.append(log_set)
     db.session.commit()

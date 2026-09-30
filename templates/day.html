@@ -54,19 +54,21 @@
                     <span class="set-num">{{ n }}</span>
                     {% for m in modes %}
                       {% set f = fields[m] %}
+                      {# Planned targets (snapshotted when the workout was loaded) show as placeholders. #}
                       {% if m == 'time' %}
                         {% set value = s.duration_seconds|mmss %}
-                        {% set placeholder = 'm:ss' %}
+                        {% set target = s.target_duration_seconds|mmss %}
                       {% elif m == 'reps' %}
                         {% set value = s.reps|num %}
-                        {% set placeholder = s.target_label or '–' %}
+                        {% set target = s.target_label %}
                       {% else %}
                         {% set value = s[f.field]|num %}
-                        {% set placeholder = '–' %}
+                        {% set target = s['target_' ~ f.field]|num %}
                       {% endif %}
                       <input type="text" inputmode="{{ f.inputmode }}" autocomplete="off"
-                             data-field="{{ f.field }}" value="{{ value }}" placeholder="{{ placeholder }}"
-                             aria-label="Set {{ n }} {{ f.label }}{% if m == 'reps' and s.target_label %}, target {{ s.target_label }}{% endif %}">
+                             data-field="{{ f.field }}" value="{{ value }}"
+                             placeholder="{{ target or ('m:ss' if m == 'time' else '–') }}"
+                             aria-label="Set {{ n }} {{ f.label }}{% if target %}, target {{ target }}{% endif %}">
                     {% endfor %}
                     <button type="button" class="check" aria-pressed="{{ 'true' if s.completed_at else 'false' }}"
                             aria-label="Set {{ n }} completed">&#10003;</button>
@@ -234,6 +236,7 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='rest_timer.js') }}"></script>
+<script src="{{ url_for('static', filename='time_format.js') }}"></script>
 <script src="{{ url_for('static', filename='exercise_filter.js') }}"></script>
 <script src="{{ url_for('static', filename='day.js') }}"></script>
 <script src="{{ url_for('static', filename='confirm_delete.js') }}"></script>

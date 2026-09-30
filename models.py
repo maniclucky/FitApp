@@ -42,6 +42,22 @@ def group_blocks(slots):
     return blocks
 
 
+def format_duration(seconds):
+    """90 -> '1:30', None -> ''."""
+    if seconds is None:
+        return ""
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def set_target_label(reps_min, reps_max, amrap, weight, seconds, distance):
+    """A planned set in brief, e.g. '8–12 @ 135 lb', '50 lb · 0:45', '25:00 · 3 mi', or ''."""
+    head = rep_target_label(reps_min, reps_max, amrap)
+    if weight is not None:
+        head = f"{head} @ {weight:g} lb" if head else f"{weight:g} lb"
+    parts = [head, format_duration(seconds), f"{distance:g} mi" if distance is not None else ""]
+    return " · ".join(p for p in parts if p)
+
+
 def rep_target_label(lo, hi, amrap):
     """e.g. '8–12', '10', '8+', '≤12', 'AMRAP', or '' for no target."""
     if amrap:
@@ -161,18 +177,32 @@ class WorkoutExercise(db.Model):
 
     @property
     def summary(self):
-        """e.g. '3 × 8–12', '3 sets: 10, 8, AMRAP', or '2 sets'."""
+        """e.g. '3 × 8–12 @ 135 lb', '3 sets: 10, 8, AMRAP', '1 × 25:00 · 3 mi', or '2 sets'."""
         n = len(self.sets)
         labels = [s.label for s in self.sets]
-        if not self.exercise.tracks_reps or not any(labels):
+        if not any(labels):
             return f"{n} set" if n == 1 else f"{n} sets"
         if len(set(labels)) == 1:
             return f"{n} × {labels[0]}"
-        return f"{n} sets: " + ", ".join(label or "—" for label in labels)
+        # Sets differ; if they all share a weight, say it once at the end.
+        weights = {s.weight for s in self.sets}
+        suffix = ""
+        if len(weights) == 1 and None not in weights:
+            suffix = f" @ {weights.pop():g} lb"
+            labels = [
+                set_target_label(s.reps_min, s.reps_max, s.is_amrap, None, s.duration_seconds, s.distance)
+                for s in self.sets
+            ]
+        return f"{n} sets: " + ", ".join(label or "—" for label in labels) + suffix
 
 
 class WorkoutSet(db.Model):
-    """A planned set. Rep range bounds are each optional; AMRAP sets have no bounds."""
+    """A planned set. Every target is optional: a rep range (each bound optional; AMRAP sets have
+    no bounds), weight (lb), time and distance (mi), used for whichever modes the exercise tracks.
+
+    weight/duration_seconds/distance are validated as >= 0 by the app, not the DB: adding CHECKs
+    would make SQLite rebuild the table (see agent-notes/data-model.md).
+    """
 
     id = db.Column(db.Integer, primary_key=True)
     workout_exercise_id = db.Column(db.ForeignKey("workout_exercise.id"), nullable=False)
@@ -180,6 +210,9 @@ class WorkoutSet(db.Model):
     reps_min = db.Column(db.Integer)
     reps_max = db.Column(db.Integer)
     is_amrap = db.Column(db.Boolean, nullable=False, default=False)
+    weight = db.Column(db.Float)
+    duration_seconds = db.Column(db.Integer)
+    distance = db.Column(db.Float)
 
     __table_args__ = (
         db.UniqueConstraint("workout_exercise_id", "position"),
@@ -196,7 +229,9 @@ class WorkoutSet(db.Model):
 
     @property
     def label(self):
-        return rep_target_label(self.reps_min, self.reps_max, self.is_amrap)
+        return set_target_label(
+            self.reps_min, self.reps_max, self.is_amrap, self.weight, self.duration_seconds, self.distance
+        )
 
 
 class Routine(db.Model):
@@ -291,6 +326,9 @@ class LogSet(db.Model):
     target_reps_min = db.Column(db.Integer)
     target_reps_max = db.Column(db.Integer)
     target_amrap = db.Column(db.Boolean, nullable=False, default=False)
+    target_weight = db.Column(db.Float)
+    target_duration_seconds = db.Column(db.Integer)
+    target_distance = db.Column(db.Float)
     weight = db.Column(db.Float)            # lb
     reps = db.Column(db.Integer)
     duration_seconds = db.Column(db.Integer)

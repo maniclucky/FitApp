@@ -33,19 +33,7 @@
 
   // ---------- set fields ----------
 
-  // Time accepts "m:ss" or microwave-style digits: "130" -> 1:30, "45" -> 0:45.
-  function parseTime(text) {
-    const t = text.trim();
-    if (!t) return null;
-    if (t.includes(":")) {
-      const m = /^(\d*):(\d{1,2})$/.exec(t);
-      return m ? Number(m[1] || 0) * 60 + Number(m[2]) : NaN;
-    }
-    if (!/^\d+$/.test(t)) return NaN;
-    const padded = t.padStart(3, "0");
-    return Number(padded.slice(0, -2)) * 60 + Number(padded.slice(-2));
-  }
-  const fmtTime = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+  const { parse: parseTime, format: fmtTime } = window.FitTime;
 
   function readField(input) {
     const raw = input.value.trim();

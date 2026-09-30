@@ -349,28 +349,24 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .wx-title h3 { margin: 0 0 4px; font-size: 1.05rem; }
 .wx-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
-.set-head {
-  display: flex;
-  gap: 8px;
-  font-size: 0.8rem;
-  color: var(--muted);
-  margin: 4px 0 4px;
-}
-.set-head span:first-child { width: 28px; }
+.set-hint { margin: 2px 0 6px; font-size: 0.8rem; color: var(--muted); }
+/* Set rows are grids; builder JS sets grid-template-columns per exercise (one column per mode). */
+.set-head, .set-row { display: grid; gap: 6px; align-items: center; }
+.set-head { font-size: 0.75rem; color: var(--muted); text-align: center; margin: 0 0 4px; }
 .sets { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.set-row { display: flex; align-items: center; gap: 6px; }
 .set-num { width: 28px; flex-shrink: 0; text-align: center; color: var(--muted); font-weight: 600; }
 .set-row input[type="text"] {
-  width: 56px;
+  width: 100%;
+  min-width: 0;
   min-height: 40px;
-  padding: 0 6px;
+  padding: 0 4px;
   text-align: center;
 }
 .set-row input[type="text"]:disabled { opacity: 0.4; }
-.set-row.invalid input[type="text"] { border-color: var(--danger); }
+.set-row input[type="text"].invalid { border-color: var(--danger); }
+.rep-range { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .range-dash { color: var(--muted); }
-.set-row .icon-btn { margin-left: auto; }
-.set-note { color: var(--muted); font-size: 0.9rem; }
+.set-row .mini-toggle span { padding: 0 7px; font-size: 0.72rem; }
 
 .mini-toggle { position: relative; }
 .mini-toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }

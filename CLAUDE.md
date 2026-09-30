@@ -16,6 +16,7 @@ Mobile-first fitness & health web app (targets phone screens), built in Python w
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # first time only
 .venv/bin/python app.py                                              # http://127.0.0.1:5000
 ```
+Startup applies any pending database migrations (Flask-Migrate, `migrations/`). Schema changes need a new migration; see `agent-notes/data-model.md` for the workflow.
 
 ## Demo data
 Test data for development and visualization. Every exercise and workout it creates is named with a `[DEMO] ` prefix.
@@ -32,9 +33,10 @@ When adding new models or features, extend `scripts/demo_data.py` so the demo se
 - `app.py` — Flask app, config, and routes
 - `models.py` — SQLAlchemy models + seed data (SQLite DB lives at `instance/fitapp.db`, gitignored)
 - `templates/` — Jinja HTML templates
-- `static/` — CSS and per-page JS (`exercise_form.js`, `workout_builder.js`, `routine_form.js`, `day.js`, `rest_timer.js`, `confirm_delete.js`, `exercise_filter.js`, `nav.js`)
+- `static/` — CSS and per-page JS (`exercise_form.js`, `workout_builder.js`, `routine_form.js`, `day.js`, `rest_timer.js`, `confirm_delete.js`, `exercise_filter.js`, `nav.js`, `time_format.js`)
 - JSON API under `/api/...` is used by the day view (set autosave, loading routines/workouts/exercises, reordering, calendar counts)
 - `scripts/` — dev utilities (demo data)
+- `migrations/` — Alembic migrations (`0001` baseline = the schema before migrations existed)
 - `templates/_confirm_delete.html` + `static/confirm_delete.js` — shared delete confirmation, opened by any button with `data-confirm-delete="<POST url>" data-name="..."` (optional `data-title` to replace the question, `data-detail`, `data-blocked`)
 - `templates/_exercise_filter.html` + `static/exercise_filter.js` — shared exercise search with muscle / primary-ancillary filter for pickers
 - Routes: `/` → `/day` (today; `/day/<YYYY-MM-DD>` for others; `POST /day/<date>/clear`), `/routines`, `/routines/new` and `/routines/<id>/edit`, `/workouts`, `/workouts/new` and `/workouts/<id>/edit` (builder), `/exercises`, `/exercises/new` and `/exercises/<id>/edit`; `POST .../<id>/delete` for each
