@@ -28,6 +28,7 @@ When adding new models or features, extend `scripts/demo_data.py` so the demo se
 
 ## UI conventions
 - Lists are tappable cards: tapping a card opens its edit form, and a × in the corner deletes. Edit forms also have a red Delete button at the bottom. Every delete goes through the shared confirmation panel. New list types should follow the same pattern.
+- Exception (user request): an **exercise** card opens the exercise page (`/exercises/<id>`: details plus history), which has an **Edit** button for the form.
 
 ## Layout
 - `app.py` — Flask app, config, and routes
@@ -35,8 +36,8 @@ When adding new models or features, extend `scripts/demo_data.py` so the demo se
 - `templates/` — Jinja HTML templates
 - `static/` — CSS and per-page JS (`exercise_form.js`, `workout_builder.js`, `routine_form.js`, `day.js`, `rest_timer.js`, `confirm_delete.js`, `exercise_filter.js`, `nav.js`, `time_format.js`)
 - JSON API under `/api/...` is used by the day view (set autosave, loading routines/workouts/exercises, reordering, calendar counts)
-- `scripts/` — dev utilities (demo data)
+- `scripts/` — dev utilities (demo data; `import_presets.py` loads target presets from `defaultOptions.ods`)
 - `migrations/` — Alembic migrations (`0001` baseline = the schema before migrations existed)
 - `templates/_confirm_delete.html` + `static/confirm_delete.js` — shared delete confirmation, opened by any button with `data-confirm-delete="<POST url>" data-name="..."` (optional `data-title` to replace the question, `data-detail`, `data-blocked`)
 - `templates/_exercise_filter.html` + `static/exercise_filter.js` — shared exercise search with muscle / primary-ancillary filter for pickers
-- Routes: `/` → `/day` (today; `/day/<YYYY-MM-DD>` for others; `POST /day/<date>/clear`), `/routines`, `/routines/new` and `/routines/<id>/edit`, `/workouts`, `/workouts/new` and `/workouts/<id>/edit` (builder), `/exercises`, `/exercises/new` and `/exercises/<id>/edit`; `POST .../<id>/delete` for each
+- Routes: `/` → `/day` (today; `/day/<YYYY-MM-DD>` for others; `POST /day/<date>/clear`), `/routines`, `/routines/new` and `/routines/<id>/edit`, `/workouts`, `/workouts/new` and `/workouts/<id>/edit` (builder), `/exercises`, `/exercises/<id>` (page with history), `/exercises/new` and `/exercises/<id>/edit`, `/presets/new` and `/presets/<id>/edit`; `POST .../<id>/delete` for each

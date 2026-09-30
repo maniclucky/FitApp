@@ -306,6 +306,10 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
   font-weight: 700;
 }
 .segmented.two { grid-template-columns: repeat(2, 1fr); }
+.cycle-days { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.cycle-days label { font-weight: 600; }
+.cycle-days input[type="text"] { width: 72px; min-height: 44px; text-align: center; font-weight: 700; }
+.cycle-days input.invalid { border-color: var(--danger); }
 .muscle-volume { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .mv-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .mv-name { font-weight: 600; }
@@ -327,8 +331,9 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .muscle-volume input.mv-target.invalid { border-color: var(--danger); }
 .muscle-volume li.no-target .mv-bar { visibility: hidden; }
 .muscle-volume li.met .mv-name { color: var(--accent); }
-.muscle-volume li.over .mv-bar span { background: #f59e0b; }
-.muscle-volume li.over .mv-detail { color: #fbbf24; }
+.muscle-volume li:not(.met):not(.no-target) .mv-bar span { background: color-mix(in srgb, var(--accent) 55%, var(--muted)); }
+.preset-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.preset-row .hint { margin: 0; }
 .routine-item { display: flex; align-items: center; gap: 10px; }
 .routine-item .wx-title { flex: 1; min-width: 0; }
 .routine-item h3 { overflow-wrap: anywhere; }
@@ -784,3 +789,38 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .pick-detail .workout-summary { font-size: 0.92rem; }
 .picker-list .cycle-btn { min-width: 44px; min-height: 44px; font-size: 1.2rem; }
 .routine-pick.overridden .picker-sub, .routine-pick.overridden [data-pick-pos] { color: var(--accent); }
+
+/* Exercise history (exercise page + day view sheet) */
+.section-title { margin: 22px 0 10px; font-size: 1.1rem; }
+.exercise-info .badges { margin-bottom: 6px; }
+.history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.history-day { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+.history-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.history-head a { color: var(--text); font-weight: 700; text-decoration: none; }
+.history-head a:active, .history-head a:focus-visible { color: var(--accent); }
+.history-head .picker-meta { text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.history-sets { list-style: none; margin: 0; padding: 0; }
+.history-sets li { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; font-variant-numeric: tabular-nums; }
+.history-sets .set-num { width: 20px; font-size: 0.85rem; }
+.history-sets .picker-meta { margin-left: auto; }
+.history-sets li.not-done > span:nth-child(2) { color: var(--muted); }
+.history-more { margin-top: 10px; text-align: center; }
+.history-sheet { height: 80dvh; }
+.history-sheet .sheet-head { align-items: flex-start; }
+.history-body { overflow-y: auto; min-height: 0; flex: 1; }
+.log-head-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.log-head-actions .button.small { min-height: 40px; padding: 0 10px; font-size: 0.85rem; }
+
+/* Target preset form */
+.preset-values { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.preset-values li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  border-bottom: 1px solid var(--border);
+}
+.preset-values label { font-weight: 600; }
+.preset-values input[type="text"] { width: 72px; min-height: 44px; text-align: center; font-weight: 600; }
+.preset-values input.invalid { border-color: var(--danger); }

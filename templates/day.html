@@ -35,10 +35,14 @@
                   <h2>{{ lx.exercise.name }}</h2>
                   {% if lx.workout %}<span class="log-source">{{ lx.workout.name }}</span>{% endif %}
                 </div>
+                <div class="log-head-actions">
+                <button type="button" class="button subtle small" data-history="{{ lx.exercise_id }}"
+                        data-name="{{ lx.exercise.name }}">History</button>
                 <button type="button" class="icon-btn danger" aria-label="Remove {{ lx.exercise.name }}"
                         data-confirm-delete="{{ url_for('delete_log_exercise', lx_id=lx.id) }}"
                         data-name="{{ lx.exercise.name }}"
                         data-detail="Removes it and its sets from this day.">&times;</button>
+                </div>
               </div>
 
               <div class="log-grid" style="--cols: {{ modes|length }}">
@@ -178,6 +182,17 @@
       <p class="empty small">No exercises yet. <a href="{{ url_for('exercise_form') }}">Create one first</a>.</p>
     {% endif %}
   </div>
+</dialog>
+
+<dialog class="sheet history-sheet" id="history-sheet" aria-labelledby="history-sheet-title">
+  <div class="sheet-head">
+    <div>
+      <h2 id="history-sheet-title"></h2>
+      <p class="hint">Before {{ 'today' if day == today else day|history_date }}</p>
+    </div>
+    <button type="button" class="button" data-close>Done</button>
+  </div>
+  <div class="history-body" id="history-body" aria-live="polite"></div>
 </dialog>
 
 <dialog class="sheet" id="calendar-sheet" aria-labelledby="cal-title">

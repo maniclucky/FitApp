@@ -1,8 +1,9 @@
 // Routine editor: the routine is an ordered array of workout ids (repeats allowed),
 // re-rendered on every change and serialized into the hidden "workout_ids" field on submit.
 // The Analytics tab totals sets per muscle group live from that array (each set counts
-// MUSCLE_SET_WEIGHTS[role], primary 1 / ancillary 0.5) and compares them with the per-muscle
-// target inputs, which are submitted with the form.
+// MUSCLE_SET_WEIGHTS[role], primary 1 / ancillary 0.5), scales them to a week by
+// 7 / cycle_days, and compares them with the per-muscle weekly target inputs. The cycle
+// and target inputs are submitted with the form.
 (function () {
   const options = JSON.parse(document.getElementById("workout-options").textContent);
   const byId = new Map(options.map((o) => [o.id, o]));
@@ -42,7 +43,16 @@
 
   const weights = JSON.parse(document.getElementById("muscle-set-weights").textContent);
   const volumeList = document.getElementById("muscle-volume");
-  const fmt = (n) => String(Math.round(n * 100) / 100);
+  const cycleInput = document.getElementById("cycle_days");
+  // Values are cut off (truncated, not rounded) at one decimal: 8.1666 -> "8.1", 8 -> "8".
+  // The epsilon keeps float noise like 8.1 * 10 = 80.99999 from dropping a tenth.
+  const fmt = (n) => String(Math.trunc(n * 10 + 1e-9) / 10);
+
+  // Days for one pass through the routine; values scale by 7 / days to weekly. Invalid -> 7.
+  function cycleDays() {
+    const n = Number(cycleInput.value);
+    return Number.isInteger(n) && n >= 1 && n <= 365 ? n : 7;
+  }
 
   function readTarget(input) {
     const raw = input.value.trim();
@@ -60,24 +70,34 @@
         raw.set(muscle, c);
       }
     }
+    const scale = 7 / cycleDays();
+    document.querySelector("[data-cycle-echo]").textContent = cycleDays();
     for (const row of volumeList.children) {
       const c = raw.get(row.dataset.muscle) || { primary: 0, ancillary: 0 };
-      const total = c.primary * weights.primary + c.ancillary * weights.ancillary;
+      const primary = c.primary * scale;
+      const ancillary = c.ancillary * scale;
+      const total = primary * weights.primary + ancillary * weights.ancillary;
       const target = readTarget(row.querySelector(".mv-target"));
       row.querySelector("[data-total]").textContent = fmt(total);
       const parts = [];
-      if (c.primary) parts.push(`${c.primary} primary`);
-      if (c.ancillary) parts.push(`${c.ancillary} ancillary`);
-      if (target != null && total > target) parts.push(`${fmt(total - target)} over`);
+      if (primary) parts.push(`${fmt(primary)} primary`);
+      if (ancillary) parts.push(`${fmt(ancillary)} ancillary`);
+      // Targets are weekly minimums; 0 (or blank) means no minimum, so no bar.
+      const hasMin = target != null && target > 0;
+      if (hasMin && total > target) parts.push(`+${fmt(total - target)} above`);
       row.querySelector("[data-detail]").textContent = parts.join(" · ");
-      const fill = target == null ? 0 : target === 0 ? (total > 0 ? 1 : 0) : Math.min(1, total / target);
-      row.querySelector(".mv-bar span").style.width = `${fill * 100}%`;
-      row.classList.toggle("no-target", target == null);
-      row.classList.toggle("met", target != null && total >= target);
-      row.classList.toggle("over", target != null && total > target);
-      row.classList.toggle("none", total === 0 && target == null);
+      row.querySelector(".mv-bar span").style.width = `${hasMin ? Math.min(1, total / target) * 100 : 0}%`;
+      row.classList.toggle("no-target", !hasMin);
+      row.classList.toggle("met", hasMin && total >= target);
+      row.classList.toggle("none", total === 0 && !hasMin);
     }
   }
+
+  cycleInput.addEventListener("input", () => {
+    cycleInput.value = cycleInput.value.replace(/\D/g, "");
+    cycleInput.classList.remove("invalid");
+    renderAnalytics();
+  });
 
   volumeList.addEventListener("input", (e) => {
     if (e.target.classList.contains("mv-target")) {
@@ -85,6 +105,64 @@
       renderAnalytics();
     }
   });
+
+  // ----- Presets -----
+  // A preset fills every target input (a muscle it lacks gets 0). Nothing is saved until
+  // "Save routine". Leaving for the preset page (new/edit) stashes the unsaved routine in
+  // sessionStorage; it's restored when you come back to this page.
+
+  const presets = JSON.parse(document.getElementById("target-presets").textContent);
+  const presetSheet = document.getElementById("preset-sheet");
+  const presetStatus = document.getElementById("preset-status");
+  const DRAFT_KEY = `fitapp.routineDraft:${location.pathname}`;
+  const targetInputs = () => [...volumeList.querySelectorAll(".mv-target")];
+  const nameInput = document.getElementById("name");
+
+  document.getElementById("open-presets").addEventListener("click", () => presetSheet.showModal());
+  presetSheet.addEventListener("click", (e) => {
+    if (e.target === presetSheet || e.target.closest("[data-close]")) return presetSheet.close();
+    const btn = e.target.closest("[data-preset]");
+    if (!btn) return;
+    const preset = presets.find((p) => p.id === Number(btn.dataset.preset));
+    for (const input of targetInputs()) {
+      input.value = String(preset.sets[input.name.replace("target-", "")] ?? 0);
+      input.classList.remove("invalid");
+    }
+    presetStatus.textContent = `Applied “${preset.name}”. Save the routine to keep it.`;
+    presetSheet.close();
+    renderAnalytics();
+  });
+
+  presetSheet.addEventListener("click", (e) => {
+    if (!e.target.closest("[data-leave]")) return;
+    const draft = {
+      name: nameInput.value,
+      ids: [...ids],
+      cycle: cycleInput.value,
+      targets: Object.fromEntries(targetInputs().map((i) => [i.name, i.value])),
+    };
+    try {
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    } catch {
+      /* without storage, unsaved changes are simply lost */
+    }
+  });
+
+  function restoreDraft() {
+    let draft = null;
+    try {
+      draft = JSON.parse(sessionStorage.getItem(DRAFT_KEY));
+      sessionStorage.removeItem(DRAFT_KEY);
+    } catch {
+      return false;
+    }
+    if (!draft) return false;
+    nameInput.value = draft.name;
+    ids.splice(0, ids.length, ...draft.ids.filter((id) => byId.has(id)));
+    cycleInput.value = draft.cycle;
+    for (const input of targetInputs()) if (input.name in draft.targets) input.value = draft.targets[input.name];
+    return true;
+  }
 
   // ----- Tabs -----
 
@@ -156,5 +234,7 @@
     document.getElementById("workout-ids-input").value = JSON.stringify(ids);
   });
 
+  const restored = restoreDraft();
   render();
+  if (restored) showTab("analytics");
 })();

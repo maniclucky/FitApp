@@ -1,6 +1,6 @@
 // Day view: autosaving set fields, completion checks, add/remove sets, the "+ Add" sheet
-// (routines/workouts/exercises), long-press reordering, the history calendar, and swipe
-// (or arrow-key) navigation.
+// (routines/workouts/exercises), per-exercise history, long-press reordering, the history
+// calendar, and swipe (or arrow-key) navigation.
 // Field edits save in place; structural changes reload the page (scroll is kept).
 (function () {
   const day = document.getElementById("day");
@@ -304,6 +304,32 @@
       }
     });
   }
+
+  // ---------- exercise history ----------
+  // The History button on each card opens a sheet listing that exercise's sessions
+  // before this day (server-rendered: templates/_exercise_history.html).
+
+  const historySheet = document.getElementById("history-sheet");
+  const historyBody = document.getElementById("history-body");
+  let historyRequest = 0;
+  wireSheet(historySheet);
+
+  day.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-history]");
+    if (!btn) return;
+    const request = ++historyRequest;
+    document.getElementById("history-sheet-title").textContent = btn.dataset.name;
+    historyBody.innerHTML = '<p class="empty small">Loading…</p>';
+    historySheet.showModal();
+    try {
+      const res = await fetch(`/exercises/${btn.dataset.history}/history?before=${day.dataset.date}`);
+      if (!res.ok) throw new Error();
+      const html = await res.text();
+      if (request === historyRequest) historyBody.innerHTML = html;
+    } catch {
+      if (request === historyRequest) historyBody.innerHTML = '<p class="empty small">Couldn’t load the history. Please try again.</p>';
+    }
+  });
 
   // ---------- long-press to reorder ----------
   // Press and hold an exercise (not on an input or button) to lift its block; a superset

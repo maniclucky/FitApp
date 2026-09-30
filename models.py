@@ -128,7 +128,7 @@ def sync_muscle_groups():
         muscle = existing.get(name.lower())
         in_use = muscle is not None and any(
             db.session.query(model).filter_by(muscle_group_id=muscle.id).first() is not None
-            for model in (ExerciseMuscle, MuscleTargetDefault, RoutineMuscleTarget)
+            for model in (ExerciseMuscle, RoutineMuscleTarget, TargetPresetValue)
         )
         if muscle is not None and not in_use:
             db.session.delete(muscle)
@@ -235,11 +235,16 @@ class WorkoutSet(db.Model):
 
 
 class Routine(db.Model):
-    """A saved, ordered set of workouts (e.g. Push / Pull / Legs)."""
+    """A saved, ordered set of workouts (e.g. Push / Pull / Legs).
+
+    cycle_days is how many days one pass through the routine takes; analytics scale the
+    routine's sets by 7 / cycle_days to show weekly volume. Validated as 1..365 by the app.
+    """
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100, collation="NOCASE"), nullable=False, unique=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    cycle_days = db.Column(db.Integer, nullable=False, default=7, server_default="7")
 
     workouts = db.relationship(
         "RoutineWorkout",
@@ -264,23 +269,36 @@ class RoutineWorkout(db.Model):
     workout = db.relationship("Workout")
 
 
-class MuscleTargetDefault(db.Model):
-    """Default target sets per muscle group, used to prefill a routine's targets.
+class TargetPreset(db.Model):
+    """A named set of weekly minimum sets per muscle group that the routine planner can apply.
 
-    Nothing is seeded: the user defines these values.
+    Imported from a spreadsheet (scripts/import_presets.py) or made in the app (/presets/new).
+    A muscle group with no value row counts as 0.
     """
 
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100, collation="NOCASE"), nullable=False, unique=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+
+    values = db.relationship("TargetPresetValue", cascade="all, delete-orphan")
+
+    def sets_by_muscle_id(self):
+        return {v.muscle_group_id: v.sets for v in self.values}
+
+
+class TargetPresetValue(db.Model):
+    preset_id = db.Column(db.ForeignKey("target_preset.id"), primary_key=True)
     muscle_group_id = db.Column(db.ForeignKey("muscle_group.id"), primary_key=True)
     sets = db.Column(db.Float, nullable=False)
 
-    __table_args__ = (db.CheckConstraint("sets >= 0", name="ck_muscle_target_default_sets"),)
+    __table_args__ = (db.CheckConstraint("sets >= 0", name="ck_target_preset_value_sets"),)
 
 
 class RoutineMuscleTarget(db.Model):
     """How many sets per pass through the routine the user wants for a muscle group.
 
     Saving a routine writes a row for every muscle group; sets is NULL when the user left it
-    blank. A routine with no rows yet (never saved with targets) shows the defaults instead.
+    blank. Targets are weekly minimums; presets (TargetPreset) fill them in the planner.
     """
 
     routine_id = db.Column(db.ForeignKey("routine.id"), primary_key=True)

@@ -24,7 +24,11 @@
 
 {% block content %}
 <header class="page-header">
-  <a class="back" href="{{ url_for('exercises') }}" aria-label="Back to exercises">&larr;</a>
+  {% if exercise %}
+    <a class="back" href="{{ url_for('exercise_detail', exercise_id=exercise.id) }}" aria-label="Back to {{ exercise.name }}">&larr;</a>
+  {% else %}
+    <a class="back" href="{{ url_for('exercises') }}" aria-label="Back to exercises">&larr;</a>
+  {% endif %}
   <h1>{{ 'Edit exercise' if exercise else 'New exercise' }}</h1>
 </header>
 

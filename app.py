@@ -18,10 +18,11 @@ from models import (
     LogExercise,
     LogSet,
     MuscleGroup,
-    MuscleTargetDefault,
     Routine,
     RoutineMuscleTarget,
     RoutineWorkout,
+    TargetPreset,
+    TargetPresetValue,
     Workout,
     WorkoutExercise,
     WorkoutSet,
@@ -194,7 +195,7 @@ def exercise_form(exercise_id=None):
                 )
             db.session.commit()
             flash(f"Saved \u201c{exercise.name}\u201d.")
-            return redirect(url_for("exercises"))
+            return redirect(url_for("exercise_detail", exercise_id=exercise.id))
 
     # Known muscle groups, plus any custom ones from a rejected submission.
     muscles = [m.name for m in ordered_muscle_groups()]
@@ -214,6 +215,93 @@ def exercise_form(exercise_id=None):
         tracking_modes=TRACKING_MODES,
         selected={role: {m.lower() for m in form[role]} for role in MUSCLE_ROLES},
     ), (400 if errors else 200)
+
+
+# ----- Exercise history -----
+
+HISTORY_LIMIT = 60  # most recent dates shown
+
+
+def exercise_history(exercise, before=None):
+    """Past sessions of an exercise, newest first: [{"date", "workouts", "sets"}].
+
+    A session is one date. Its sets are the ones actually recorded there (completed, or
+    with any value entered), in order across that day's entries. Dates with nothing
+    recorded are skipped. `before` limits it to dates earlier than that day.
+    """
+    query = (
+        select(LogExercise)
+        .where(LogExercise.exercise_id == exercise.id)
+        .order_by(LogExercise.date.desc(), LogExercise.position)
+    )
+    if before is not None:
+        query = query.where(LogExercise.date < before)
+    sessions = []
+    for lx in db.session.scalars(query):
+        recorded = [
+            s for s in lx.sets
+            if s.completed_at is not None
+            or any(v is not None for v in (s.weight, s.reps, s.duration_seconds, s.distance))
+        ]
+        if not recorded:
+            continue
+        if not sessions or sessions[-1]["date"] != lx.date:
+            if len(sessions) == HISTORY_LIMIT:
+                break
+            sessions.append({"date": lx.date, "workouts": [], "sets": []})
+        session = sessions[-1]
+        if lx.workout and lx.workout.name not in session["workouts"]:
+            session["workouts"].append(lx.workout.name)
+        session["sets"].extend(recorded)
+    return sessions
+
+
+@app.template_filter("set_result")
+def set_result(log_set, exercise):
+    """What was done in a set, for the exercise's current modes: '135 lb × 8', '50 lb · 0:45', '25:00 · 3 mi'."""
+    modes = exercise.tracking_modes
+    head = ""
+    if "weight" in modes and log_set.weight is not None:
+        head = f"{log_set.weight:g} lb"
+    if "reps" in modes and log_set.reps is not None:
+        head = f"{head} × {log_set.reps}" if head else f"{log_set.reps} reps"
+    parts = [
+        head,
+        format_duration(log_set.duration_seconds) if "time" in modes else "",
+        f"{log_set.distance:g} mi" if "distance" in modes and log_set.distance is not None else "",
+    ]
+    return " · ".join(p for p in parts if p) or "—"
+
+
+@app.template_filter("history_date")
+def history_date(d):
+    """'Tue, Sep 29', with the year added when it isn't this year."""
+    label = f"{d:%a}, {d:%b} {d.day}"
+    return label if d.year == date.today().year else f"{label}, {d.year}"
+
+
+@app.route("/exercises/<int:exercise_id>")
+def exercise_detail(exercise_id):
+    exercise = db.get_or_404(Exercise, exercise_id)
+    return render_template(
+        "exercise_detail.html",
+        exercise=exercise,
+        sessions=exercise_history(exercise),
+        history_limit=HISTORY_LIMIT,
+    )
+
+
+@app.get("/exercises/<int:exercise_id>/history")
+def exercise_history_fragment(exercise_id):
+    """The history list alone (for the day view's sheet). ?before=YYYY-MM-DD skips that day and later."""
+    exercise = db.get_or_404(Exercise, exercise_id)
+    before = parse_day(request.args["before"]) if request.args.get("before") else None
+    return render_template(
+        "_exercise_history.html",
+        exercise=exercise,
+        sessions=exercise_history(exercise, before),
+        history_limit=HISTORY_LIMIT,
+    )
 
 
 @app.route("/exercises/<int:exercise_id>/delete", methods=["POST"])
@@ -529,13 +617,6 @@ def workout_muscle_sets(workout):
     return totals
 
 
-def initial_muscle_targets(routine):
-    """{muscle_group_id: sets or None}: the routine's saved targets, or the defaults if it has none."""
-    if routine and routine.targets:
-        return {t.muscle_group_id: t.sets for t in routine.targets}
-    return {d.muscle_group_id: d.sets for d in db.session.scalars(select(MuscleTargetDefault))}
-
-
 @app.route("/routines/new", methods=["GET", "POST"])
 @app.route("/routines/<int:routine_id>/edit", methods=["GET", "POST"])
 def routine_form(routine_id=None):
@@ -549,7 +630,8 @@ def routine_form(routine_id=None):
     else:
         name, workout_ids = "", []
     # Values shown in the target inputs, as text so a rejected entry is re-shown as typed.
-    targets = {mg_id: format_number(v) for mg_id, v in initial_muscle_targets(routine).items()}
+    targets = {t.muscle_group_id: format_number(t.sets) for t in routine.targets} if routine else {}
+    cycle_days = str(routine.cycle_days) if routine else "7"
 
     if request.method == "POST":
         name = clean_name(request.form.get("name", ""), 100)
@@ -564,6 +646,10 @@ def routine_form(routine_id=None):
         if not workout_ids and not errors:
             errors.append("Add at least one workout.")
 
+        cycle_days = request.form.get("cycle_days", "").strip()
+        if not cycle_days.isdigit() or not 1 <= int(cycle_days) <= 365:
+            errors.append("Days to complete the routine must be a whole number from 1 to 365.")
+
         parsed_targets = {}
         for mg in muscle_groups:
             raw = request.form.get(f"target-{mg.id}", "").strip()
@@ -577,12 +663,13 @@ def routine_form(routine_id=None):
         if not errors:
             if routine:
                 routine.name = name
+                routine.cycle_days = int(cycle_days)
                 # Flush the deletes first so new rows don't collide on the unique/primary keys.
                 routine.workouts.clear()
                 routine.targets.clear()
                 db.session.flush()
             else:
-                routine = Routine(name=name)
+                routine = Routine(name=name, cycle_days=int(cycle_days))
                 db.session.add(routine)
             routine.workouts.extend(
                 RoutineWorkout(workout_id=wid, position=n) for n, wid in enumerate(workout_ids, start=1)
@@ -608,8 +695,72 @@ def routine_form(routine_id=None):
         muscle_groups=muscle_groups,
         targets=targets,
         bad_targets=bad_targets,
+        cycle_days=cycle_days,
+        presets=[
+            {"id": p.id, "name": p.name, "sets": {str(k): v for k, v in p.sets_by_muscle_id().items()}}
+            for p in db.session.scalars(select(TargetPreset).order_by(TargetPreset.name))
+        ],
         muscle_set_weights=MUSCLE_SET_WEIGHTS,
     ), (400 if errors else 200)
+
+
+# ----- Target presets (weekly minimum sets per muscle group) -----
+
+@app.route("/presets/new", methods=["GET", "POST"])
+@app.route("/presets/<int:preset_id>/edit", methods=["GET", "POST"])
+def preset_form(preset_id=None):
+    preset = db.get_or_404(TargetPreset, preset_id) if preset_id is not None else None
+    back = safe_next(request.values.get("next")) or url_for("routines")
+    muscle_groups = ordered_muscle_groups()
+    errors, bad = [], set()
+    name = preset.name if preset else ""
+    values = {k: format_number(v) for k, v in preset.sets_by_muscle_id().items()} if preset else {}
+
+    if request.method == "POST":
+        name = clean_name(request.form.get("name", ""), 100)
+        duplicate = select(TargetPreset.id).where(TargetPreset.name == name)
+        if preset:
+            duplicate = duplicate.where(TargetPreset.id != preset.id)
+        if not name:
+            errors.append("Name is required.")
+        elif db.session.scalar(duplicate):
+            errors.append(f"A preset named \u201c{name}\u201d already exists.")
+        parsed = {}
+        for mg in muscle_groups:
+            raw = request.form.get(f"sets-{mg.id}", "").strip()
+            values[mg.id] = raw
+            try:
+                parsed[mg.id] = parse_log_value(raw, f"{mg.name} minimum", integer=False, maximum=999) or 0
+            except ValueError as e:
+                errors.append(str(e))
+                bad.add(mg.id)
+        if not errors:
+            if preset:
+                preset.name = name
+                preset.values.clear()
+                db.session.flush()
+            else:
+                preset = TargetPreset(name=name)
+                db.session.add(preset)
+            # Blank means 0; store every group so the preset is complete.
+            preset.values.extend(TargetPresetValue(muscle_group_id=k, sets=v) for k, v in parsed.items())
+            db.session.commit()
+            flash(f"Saved preset \u201c{preset.name}\u201d.")
+            return redirect(back)
+
+    return render_template(
+        "preset_form.html", preset=preset, name=name, values=values, bad=bad, errors=errors,
+        muscle_groups=muscle_groups, back=back,
+    ), (400 if errors else 200)
+
+
+@app.post("/presets/<int:preset_id>/delete")
+def delete_preset(preset_id):
+    preset = db.get_or_404(TargetPreset, preset_id)
+    db.session.delete(preset)
+    db.session.commit()
+    flash(f"Deleted preset \u201c{preset.name}\u201d.")
+    return redirect(safe_next(request.values.get("next")) or url_for("routines"))
 
 
 @app.route("/routines/<int:routine_id>/delete", methods=["POST"])

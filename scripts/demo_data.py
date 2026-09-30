@@ -29,6 +29,8 @@ from models import (  # noqa: E402
     Routine,
     RoutineMuscleTarget,
     RoutineWorkout,
+    TargetPreset,
+    TargetPresetValue,
     Workout,
     WorkoutExercise,
     db,
@@ -128,7 +130,10 @@ ROUTINES = {
     "Full Body A / B": ["Full Body Circuit", "Conditioning", "Full Body Circuit"],
 }
 
-# routine name: {muscle: target sets per pass}. A mix of under, met, and over target;
+# routine name: days one pass takes (analytics scale to weekly by 7 / days); default 7.
+ROUTINE_CYCLE_DAYS = {"Full Body A / B": 5}
+
+# routine name: {muscle: weekly target sets}. A mix of under, met, and over target;
 # Full Body has none, to show the empty state.
 ROUTINE_TARGETS = {
     "Push / Pull / Legs": {
@@ -137,12 +142,24 @@ ROUTINE_TARGETS = {
     },
 }
 
+# preset name: {muscle: weekly minimum sets}; unlisted groups are 0.
+PRESETS = {
+    "Balanced": {
+        "Chest": 10, "Front Deltoid": 4, "Side Deltoid": 8, "Rear Deltoid": 6, "Biceps": 6, "Triceps": 6,
+        "Upper Back": 10, "Lats": 8, "Abs": 6, "Glutes": 8, "Quads": 10, "Hamstrings": 8, "Calves": 6,
+    },
+}
+
 
 # ---- Logged history ----
 
 HISTORY_DAYS = 35
-# weekday (Mon=0) -> workout; Full Body replaces Push on odd weeks' Tuesdays for variety.
-SCHEDULE = {0: "Push Day", 2: "Pull Day", 4: "Leg Day", 5: "Conditioning"}
+# Sessions in the last FULL_HISTORY_DAYS are never skipped, so every demo exercise (each is in
+# at least one weekly workout) has at least two completed recent sessions to examine in its
+# history, even the one left unfinished in the latest session.
+FULL_HISTORY_DAYS = 21
+# weekday (Mon=0) -> workout.
+SCHEDULE = {0: "Push Day", 1: "Full Body Circuit", 2: "Pull Day", 4: "Leg Day", 5: "Conditioning"}
 
 # Starting working weight (lb) and weekly increase; missing = bodyweight/no weight.
 WEIGHTS = {
@@ -186,9 +203,8 @@ def seed_history(workouts):
     for offset in range(HISTORY_DAYS):
         d = first + timedelta(days=offset)
         name = SCHEDULE.get(d.weekday())
-        if d.weekday() == 1 and (d.isocalendar().week % 2):
-            name = "Full Body Circuit"
-        if name and rng.random() > 0.12:  # skip the occasional session
+        recent = (today - d).days <= FULL_HISTORY_DAYS
+        if name and (rng.random() > 0.12 or recent):  # skip the occasional older session
             sessions.append((d, name))
 
     for i, (d, name) in enumerate(sessions):
@@ -221,6 +237,10 @@ def remove():
     days = len({entry.date for entry in history})
     db.session.flush()
 
+    presets = db.session.scalars(demo(TargetPreset)).all()
+    for p in presets:
+        db.session.delete(p)
+
     routines = db.session.scalars(demo(Routine)).all()
     for r in routines:
         db.session.delete(r)
@@ -249,7 +269,7 @@ def remove():
             db.session.delete(ex)
             removed += 1
     db.session.commit()
-    print(f"Removed {len(routines)} demo routines, {len(workouts)} demo workouts, {removed} demo exercises, "
+    print(f"Removed {len(presets)} demo presets, {len(routines)} demo routines, {len(workouts)} demo workouts, {removed} demo exercises, "
           f"and demo history on {days} days.")
     if kept_workouts:
         print("Kept demo workouts still used by non-demo routines:\n  " + "\n  ".join(kept_workouts))
@@ -289,6 +309,7 @@ def seed():
         targets = ROUTINE_TARGETS.get(name)
         db.session.add(Routine(
             name=DEMO_PREFIX + name,
+            cycle_days=ROUTINE_CYCLE_DAYS.get(name, 7),
             workouts=[RoutineWorkout(workout=workouts[w], position=n) for n, w in enumerate(workout_names, start=1)],
             # Like a routine saved in the UI: one row per muscle group, None where there's no target.
             targets=[
@@ -297,9 +318,15 @@ def seed():
             ] if targets else [],
         ))
 
+    for name, minimums in PRESETS.items():
+        db.session.add(TargetPreset(name=DEMO_PREFIX + name, values=[
+            TargetPresetValue(muscle_group_id=mg_id, sets=minimums.get(mg_name, 0))
+            for mg_name, mg_id in muscle_ids.items()
+        ]))
+
     sessions = seed_history(workouts)
     db.session.commit()
-    print(f"Seeded {len(EXERCISES)} demo exercises, {len(WORKOUTS)} demo workouts, {len(ROUTINES)} demo routines, "
+    print(f"Seeded {len(EXERCISES)} demo exercises, {len(WORKOUTS)} demo workouts, {len(ROUTINES)} demo routines, {len(PRESETS)} demo presets, "
           f"and {sessions} days of history.")
 
 

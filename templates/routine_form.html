@@ -35,9 +35,20 @@
   </div>
 
   <div class="field" role="tabpanel" id="panel-analytics" aria-labelledby="tab-analytics" hidden>
-    <p class="hint">Sets per muscle group across one pass through the routine. A primary muscle counts
+    <div class="cycle-days">
+      <label for="cycle_days">Days to complete the routine</label>
+      <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off"
+             id="cycle_days" name="cycle_days" value="{{ cycle_days }}"
+             class="{% if errors and not (cycle_days.isdigit() and 1 <= cycle_days|int <= 365) %}invalid{% endif %}">
+    </div>
+    <div class="preset-row">
+      <button type="button" class="button subtle" id="open-presets">Presets</button>
+      <p class="hint" id="preset-status" aria-live="polite"></p>
+    </div>
+    <p class="hint">Weekly sets per muscle group: one pass through the routine, scaled by
+      7&nbsp;÷&nbsp;<span data-cycle-echo>{{ cycle_days }}</span> days. A primary muscle counts
       {{ muscle_set_weights.primary }} per set; an ancillary muscle counts {{ muscle_set_weights.ancillary }}.
-      Enter the total you want for each group; the bar fills toward it.</p>
+      Enter the weekly minimum for each group (or apply a preset); the bar fills toward it.</p>
     <ul class="muscle-volume" id="muscle-volume">
       {% for mg in muscle_groups %}
         <li data-muscle="{{ mg.name }}">
@@ -68,6 +79,32 @@
   {% include "_confirm_delete.html" %}
 {% endif %}
 
+<dialog class="sheet" id="preset-sheet" aria-labelledby="preset-sheet-title">
+  <div class="sheet-head">
+    <h2 id="preset-sheet-title">Target presets</h2>
+    <button type="button" class="button subtle" data-close>Cancel</button>
+  </div>
+  <p class="hint">Fills every group’s weekly minimum. Groups a preset leaves out get 0.</p>
+  {% if presets %}
+    <ul class="picker-list">
+      {% for p in presets %}
+        <li class="pick-item">
+          <div class="pick-row">
+            <button type="button" class="pick-toggle" data-preset="{{ p.id }}">
+              <span>{{ p.name }}<span class="picker-sub">{{ p.sets.values()|select|list|length }} groups · {{ p.sets.values()|sum|num }} sets/week</span></span>
+            </button>
+            <a class="button subtle small" data-leave
+               href="{{ url_for('preset_form', preset_id=p.id, next=request.path) }}">Edit</a>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="empty small">No presets yet.</p>
+  {% endif %}
+  <a class="button block" data-leave href="{{ url_for('preset_form', next=request.path) }}">+ New preset</a>
+</dialog>
+
 <dialog class="sheet" id="picker" aria-labelledby="picker-title">
   <div class="sheet-head">
     <h2 id="picker-title">Add workouts</h2>
@@ -82,6 +119,7 @@
 </dialog>
 
 <script type="application/json" id="workout-options">{{ workout_options|tojson }}</script>
+<script type="application/json" id="target-presets">{{ presets|tojson }}</script>
 <script type="application/json" id="muscle-set-weights">{{ muscle_set_weights|tojson }}</script>
 <script type="application/json" id="initial-workout-ids">{{ workout_ids|tojson }}</script>
 {% endblock %}
