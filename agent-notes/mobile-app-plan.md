@@ -18,7 +18,9 @@ Last updated: 2026-09-30
 - **iPhone (no Mac, no store):** the same offline build as an installable PWA. It's opened once in Safari from a static URL, then Share → Add to Home Screen, and from then on runs offline. Only the app's files are hosted (e.g. Codeberg Pages); user data never leaves the phone. Limits:
   - No rest-timer alarm while locked (web apps can't schedule local notifications).
   - iOS may clear site storage in rare cases, so an on-device backup file matters.
-- A native iOS build later would need a cloud Mac build and a $99/yr Apple account (TestFlight or Ad Hoc). That's out of scope unless the user asks.
+- **Chosen for iPhone (user, 2026-09-30): the installable PWA, not a native iOS build.** A native iOS build later would need a cloud Mac build and a $99/yr Apple account (TestFlight or Ad Hoc); that's out of scope unless the user asks.
+- The user has an **iPad** to use as the Apple test device. Its Safari uses the same WebKit as iPhone, so it can test install, offline use, storage and touch (including the untested long-press drag). Safari can be debugged from Linux over USB with `ios-webkit-debug-proxy`/`libimobiledevice` (not installed yet; only if needed). The iPad can't build the app (no Xcode on iPadOS).
+- The PWA needs a stable HTTPS static address, because iOS storage belongs to the exact origin. Moving it later means users start empty unless they Export/Import. Still open: whether the Codeberg repo can be public (required by Codeberg Pages) or another static host is used.
 
 ## Backups
 - There's no cloud. Add **export to file / import from file** (a JSON backup the user saves wherever they like), plus a one-time import of the existing Flask `instance/fitapp.db` so current history carries over.
