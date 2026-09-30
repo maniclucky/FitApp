@@ -17,11 +17,21 @@
     {% block content %}{% endblock %}
   </main>
   {% block tabbar %}
+  {% set library = [('routines', 'Routines'), ('workouts', 'Workouts'), ('exercises', 'Exercises')] %}
+  {% set current = library|selectattr(0, 'equalto', request.endpoint)|map(attribute=1)|first %}
   <nav class="tabbar" aria-label="Main">
-    {% for endpoint, label in [('day', 'Today'), ('workouts', 'Workouts'), ('exercises', 'Exercises')] %}
-      <a href="{{ url_for(endpoint) }}" {% if request.endpoint == endpoint %}aria-current="page"{% endif %}>{{ label }}</a>
-    {% endfor %}
+    <a href="{{ url_for('day') }}" {% if request.endpoint == 'day' %}aria-current="page"{% endif %}>Today</a>
+    <div class="tab-menu">
+      <button type="button" class="tab-menu-btn" id="library-btn" aria-expanded="false" aria-controls="library-menu"
+              {% if current %}data-current{% endif %}>Library <span aria-hidden="true">&#9652;</span></button>
+      <div class="tab-menu-list" id="library-menu" hidden>
+        {% for endpoint, label in library %}
+          <a href="{{ url_for(endpoint) }}" {% if request.endpoint == endpoint %}aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </div>
+    </div>
   </nav>
+  <script src="{{ url_for('static', filename='nav.js') }}"></script>
   {% endblock %}
   {% block scripts %}{% endblock %}
 </body>

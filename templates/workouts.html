@@ -31,7 +31,8 @@
         </a>
         <button type="button" class="icon-btn danger card-delete" aria-label="Delete {{ w.name }}"
                 data-confirm-delete="{{ url_for('delete_workout', workout_id=w.id) }}" data-name="{{ w.name }}"
-                data-detail="This permanently removes the workout plan. Days you’ve already logged keep their sets.">&times;</button>
+                data-detail="This permanently removes the workout plan. Days you’ve already logged keep their sets."
+                {% if blocked[w.id] %}data-blocked="{{ blocked[w.id] }}"{% endif %}>&times;</button>
       </li>
     {% endfor %}
   </ul>

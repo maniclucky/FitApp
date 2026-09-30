@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Routines · FitApp{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>Routines</h1>
+  <a class="button" href="{{ url_for('routine_form') }}">+ New</a>
+</header>
+
+{% if routines %}
+  <ul class="card-list">
+    {% for r in routines %}
+      <li class="card-wrap">
+        {# The title link covers the whole card; each workout row is its own link above it. #}
+        <div class="card card-stretch">
+          <h2><a class="card-cover" href="{{ url_for('routine_form', routine_id=r.id) }}">{{ r.name }}</a></h2>
+          <ol class="routine-summary">
+            {% for rw in r.workouts %}
+              <li><a href="{{ url_for('workout_builder', workout_id=rw.workout_id, next=url_for('routines')) }}">
+                <span class="routine-num">{{ loop.index }}</span><span>{{ rw.workout.name }}</span><span class="chevron" aria-hidden="true">&rsaquo;</span>
+              </a></li>
+            {% endfor %}
+          </ol>
+        </div>
+        <button type="button" class="icon-btn danger card-delete" aria-label="Delete {{ r.name }}"
+                data-confirm-delete="{{ url_for('delete_routine', routine_id=r.id) }}" data-name="{{ r.name }}"
+                data-detail="This removes the routine only. Its workouts and your logged days stay.">&times;</button>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="empty">No routines yet. A routine is a saved set of workouts,<br>like Push / Pull / Legs. Tap <strong>+ New</strong> to make one.</p>
+{% endif %}
+{% include "_confirm_delete.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='confirm_delete.js') }}"></script>
+{% endblock %}

@@ -1,8 +1,8 @@
-"""Seed or remove demo exercises, workouts, and logged history for testing and visualization.
+"""Seed or remove demo exercises, workouts, routines, and logged history for testing and visualization.
 
 Everything created here is named with DEMO_PREFIX so it's obvious in the UI
-and can be removed cleanly. Demo workouts only use demo exercises, and demo
-history (the past few weeks, ending yesterday) only logs demo exercises.
+and can be removed cleanly. Demo workouts only use demo exercises, demo
+routines only use demo workouts, and demo history (the past few weeks, ending yesterday) only logs demo exercises.
 
     .venv/bin/python scripts/demo_data.py            # (re)seed: removes old demo data first
     .venv/bin/python scripts/demo_data.py --remove   # remove all demo data
@@ -24,6 +24,8 @@ from models import (  # noqa: E402
     Exercise,
     ExerciseMuscle,
     LogExercise,
+    Routine,
+    RoutineWorkout,
     Workout,
     WorkoutExercise,
     db,
@@ -110,6 +112,12 @@ WORKOUTS = {
     ],
 }
 
+# name: workout names in order (repeats allowed).
+ROUTINES = {
+    "Push / Pull / Legs": ["Push Day", "Pull Day", "Leg Day", "Conditioning"],
+    "Full Body A / B": ["Full Body Circuit", "Conditioning", "Full Body Circuit"],
+}
+
 
 # ---- Logged history ----
 
@@ -194,9 +202,21 @@ def remove():
     days = len({entry.date for entry in history})
     db.session.flush()
 
-    workouts = db.session.scalars(demo(Workout)).all()
-    for w in workouts:
-        db.session.delete(w)
+    routines = db.session.scalars(demo(Routine)).all()
+    for r in routines:
+        db.session.delete(r)
+    db.session.flush()
+
+    workouts, kept_workouts = [], []
+    for w in db.session.scalars(demo(Workout)).all():
+        in_use = db.session.scalars(
+            select(Routine.name).join(RoutineWorkout).where(RoutineWorkout.workout_id == w.id)
+        ).all()
+        if in_use:
+            kept_workouts.append(f"{w.name} (used by {', '.join(sorted(set(in_use)))})")
+        else:
+            db.session.delete(w)
+            workouts.append(w)
     db.session.flush()
 
     removed, kept = 0, []
@@ -210,9 +230,12 @@ def remove():
             db.session.delete(ex)
             removed += 1
     db.session.commit()
-    print(f"Removed {len(workouts)} demo workouts, {removed} demo exercises, and demo history on {days} days.")
+    print(f"Removed {len(routines)} demo routines, {len(workouts)} demo workouts, {removed} demo exercises, "
+          f"and demo history on {days} days.")
+    if kept_workouts:
+        print("Kept demo workouts still used by non-demo routines:\n  " + "\n  ".join(kept_workouts))
     if kept:
-        print("Kept demo exercises still used by non-demo workouts:\n  " + "\n  ".join(kept))
+        print("Kept demo exercises still used by kept or non-demo workouts:\n  " + "\n  ".join(kept))
 
 
 def seed():
@@ -242,9 +265,15 @@ def seed():
         workouts[name] = workout
     db.session.flush()
 
+    for name, workout_names in ROUTINES.items():
+        db.session.add(Routine(name=DEMO_PREFIX + name, workouts=[
+            RoutineWorkout(workout=workouts[w], position=n) for n, w in enumerate(workout_names, start=1)
+        ]))
+
     sessions = seed_history(workouts)
     db.session.commit()
-    print(f"Seeded {len(EXERCISES)} demo exercises, {len(WORKOUTS)} demo workouts, and {sessions} days of history.")
+    print(f"Seeded {len(EXERCISES)} demo exercises, {len(WORKOUTS)} demo workouts, {len(ROUTINES)} demo routines, "
+          f"and {sessions} days of history.")
 
 
 if __name__ == "__main__":

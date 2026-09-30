@@ -1,5 +1,6 @@
 // Opens the shared delete confirmation (templates/_confirm_delete.html) for any
-// button with data-confirm-delete="<POST url>" and data-name="<item name>".
+// button with data-confirm-delete="<POST url>" and data-name="<item name>"
+// (or data-title="<whole question>" in place of data-name).
 // Optional: data-detail (consequence text), data-blocked (reason deletion isn't allowed).
 (function () {
   const dialog = document.getElementById("confirm-delete");
@@ -17,7 +18,7 @@
     const blocked = btn.dataset.blocked;
     title.textContent = blocked
       ? `Can’t delete “${btn.dataset.name}”`
-      : `Delete “${btn.dataset.name}”?`;
+      : btn.dataset.title || `Delete “${btn.dataset.name}”?`;
     detail.textContent = blocked || btn.dataset.detail || "This can’t be undone.";
     submit.hidden = Boolean(blocked);
     cancel.textContent = blocked ? "OK" : "Cancel";

@@ -1,0 +1,14 @@
+{# Search box plus muscle filter for an exercise picker. Needs `muscle_options`; wired up by static/exercise_filter.js. #}
+<div class="ex-filter" data-exercise-filter>
+  <input type="text" data-filter-search placeholder="Search exercises" aria-label="Search exercises" autocomplete="off">
+  <div class="ex-filter-row">
+    <select data-filter-muscle aria-label="Filter by muscle">
+      <option value="">All muscles</option>
+      {% for m in muscle_options %}<option>{{ m }}</option>{% endfor %}
+    </select>
+    <div class="role-toggles" role="group" aria-label="Match the muscle as">
+      <label class="mini-toggle"><input type="checkbox" data-filter-role="primary" disabled><span>Primary</span></label>
+      <label class="mini-toggle"><input type="checkbox" data-filter-role="ancillary" disabled><span>Ancillary</span></label>
+    </div>
+  </div>
+</div>

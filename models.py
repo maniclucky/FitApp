@@ -174,6 +174,35 @@ class WorkoutSet(db.Model):
         return rep_target_label(self.reps_min, self.reps_max, self.is_amrap)
 
 
+class Routine(db.Model):
+    """A saved, ordered set of workouts (e.g. Push / Pull / Legs)."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100, collation="NOCASE"), nullable=False, unique=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+
+    workouts = db.relationship(
+        "RoutineWorkout",
+        back_populates="routine",
+        order_by="RoutineWorkout.position",
+        cascade="all, delete-orphan",
+    )
+
+
+class RoutineWorkout(db.Model):
+    """One workout slot in a routine. The same workout may appear more than once (A / B / A)."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    routine_id = db.Column(db.ForeignKey("routine.id"), nullable=False)
+    workout_id = db.Column(db.ForeignKey("workout.id"), nullable=False)
+    position = db.Column(db.Integer, nullable=False)
+
+    __table_args__ = (db.UniqueConstraint("routine_id", "position"),)
+
+    routine = db.relationship("Routine", back_populates="workouts")
+    workout = db.relationship("Workout")
+
+
 class LogExercise(db.Model):
     """An exercise performed (or planned) on a calendar day.
 
