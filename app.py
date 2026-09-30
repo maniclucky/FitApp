@@ -12,6 +12,7 @@ from sqlalchemy import func, inspect, select, update
 from models import (
     MUSCLE_ROLES,
     MUSCLE_SET_WEIGHTS,
+    NOTE_MAX_LENGTH,
     TRACKING_MODES,
     Exercise,
     ExerciseMuscle,
@@ -79,6 +80,18 @@ def clean_muscles(values):
     return result
 
 
+def clean_note(value, label):
+    """Trimmed note text with Unix newlines, or None if blank. Raises ValueError if too long."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be text.")
+    text = value.replace("\r\n", "\n").strip()
+    if len(text) > NOTE_MAX_LENGTH:
+        raise ValueError(f"{label} can be at most {NOTE_MAX_LENGTH} characters.")
+    return text or None
+
+
 def get_or_create_muscle(name):
     muscle = db.session.scalar(select(MuscleGroup).where(MuscleGroup.name == name))
     if muscle is None:
@@ -135,9 +148,10 @@ def exercise_form(exercise_id=None):
             "name": exercise.name,
             "tracking": exercise.tracking_modes,
             **{role: exercise.muscle_names(role) for role in MUSCLE_ROLES},
+            "note": exercise.note or "",
         }
     else:
-        form = {"name": "", "tracking": [], "primary": [], "ancillary": []}
+        form = {"name": "", "tracking": [], "primary": [], "ancillary": [], "note": ""}
 
     if request.method == "POST":
         form["name"] = clean_name(request.form.get("name", ""), 100)
@@ -160,6 +174,11 @@ def exercise_form(exercise_id=None):
             errors.append("Pick at least one tracking mode.")
         if not form["primary"]:
             errors.append("Pick at least one primary muscle group.")
+        form["note"] = request.form.get("note", "")
+        try:
+            note = clean_note(form["note"], "The note")
+        except ValueError as e:
+            errors.append(str(e))
 
         if not errors:
             if exercise:
@@ -171,6 +190,7 @@ def exercise_form(exercise_id=None):
                 exercise = Exercise()
                 db.session.add(exercise)
             exercise.name = form["name"]
+            exercise.note = note
             for m in TRACKING_MODES:
                 setattr(exercise, f"tracks_{m}", m in form["tracking"])
             for role in MUSCLE_ROLES:
@@ -214,6 +234,7 @@ def exercise_form(exercise_id=None):
         muscles=muscles,
         tracking_modes=TRACKING_MODES,
         selected={role: {m.lower() for m in form[role]} for role in MUSCLE_ROLES},
+        note_max=NOTE_MAX_LENGTH,
     ), (400 if errors else 200)
 
 
@@ -223,11 +244,12 @@ HISTORY_LIMIT = 60  # most recent dates shown
 
 
 def exercise_history(exercise, before=None):
-    """Past sessions of an exercise, newest first: [{"date", "workouts", "sets"}].
+    """Past sessions of an exercise, newest first: [{"date", "workouts", "sets", "notes"}].
 
     A session is one date. Its sets are the ones actually recorded there (completed, or
-    with any value entered), in order across that day's entries. Dates with nothing
-    recorded are skipped. `before` limits it to dates earlier than that day.
+    with any value entered), in order across that day's entries; notes are that day's
+    session notes. Dates with no recorded sets and no note are skipped. `before` limits
+    it to dates earlier than that day.
     """
     query = (
         select(LogExercise)
@@ -243,13 +265,15 @@ def exercise_history(exercise, before=None):
             if s.completed_at is not None
             or any(v is not None for v in (s.weight, s.reps, s.duration_seconds, s.distance))
         ]
-        if not recorded:
+        if not recorded and not lx.note:
             continue
         if not sessions or sessions[-1]["date"] != lx.date:
             if len(sessions) == HISTORY_LIMIT:
                 break
-            sessions.append({"date": lx.date, "workouts": [], "sets": []})
+            sessions.append({"date": lx.date, "workouts": [], "sets": [], "notes": []})
         session = sessions[-1]
+        if lx.note:
+            session["notes"].append(lx.note)
         if lx.workout and lx.workout.name not in session["workouts"]:
             session["workouts"].append(lx.workout.name)
         session["sets"].extend(recorded)
@@ -850,6 +874,7 @@ def day(day_str=None):
         blocks=blocks,
         rest_after=rest_after_sets(blocks),
         fields=DAY_FIELDS,
+        note_max=NOTE_MAX_LENGTH,
         routines=[
             (r, routine_next_index(r, d))
             for r in db.session.scalars(select(Routine).order_by(Routine.name)) if r.workouts
@@ -1098,6 +1123,26 @@ def api_remove_last_log_set(lx_id):
     db.session.delete(last)
     db.session.commit()
     return "", 204
+
+
+@app.patch("/api/log-exercises/<int:lx_id>/notes")
+def api_update_notes(lx_id):
+    """Set a logged exercise's notes: {"exercise_note": ..., "session_note": ...} (either key optional).
+
+    exercise_note is stored on the exercise itself, so it shows everywhere it's used;
+    session_note belongs to this day's entry. Blank clears a note.
+    """
+    lx = db.get_or_404(LogExercise, lx_id)
+    data = json_body()
+    try:
+        if "exercise_note" in data:
+            lx.exercise.note = clean_note(data["exercise_note"], "The exercise note")
+        if "session_note" in data:
+            lx.note = clean_note(data["session_note"], "The session note")
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    db.session.commit()
+    return jsonify(exercise_note=lx.exercise.note, session_note=lx.note)
 
 
 @app.post("/log-exercises/<int:lx_id>/delete")

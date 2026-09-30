@@ -61,6 +61,12 @@
   {{ muscle_field('primary', 'Primary muscle groups', 'The main muscles this exercise targets.') }}
   {{ muscle_field('ancillary', 'Ancillary muscle groups', 'Supporting muscles (optional).') }}
 
+  <div class="field">
+    <label for="note">Note</label>
+    <p class="hint">Shown every time you do this exercise, e.g. seat height or form cues (optional).</p>
+    <textarea id="note" name="note" rows="3" maxlength="{{ note_max }}">{{ form.note }}</textarea>
+  </div>
+
   <button type="submit" class="button block">Save exercise</button>
 </form>
 

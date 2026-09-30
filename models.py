@@ -6,6 +6,7 @@ db = SQLAlchemy()
 
 TRACKING_MODES = ["weight", "reps", "time", "distance"]
 MUSCLE_ROLES = ["primary", "ancillary"]
+NOTE_MAX_LENGTH = 500  # exercise notes and session notes
 # How much one set counts toward a muscle's volume, by the muscle's role in the exercise.
 MUSCLE_SET_WEIGHTS = {"primary": 1, "ancillary": 0.5}
 
@@ -79,6 +80,7 @@ class Exercise(db.Model):
     tracks_time = db.Column(db.Boolean, nullable=False, default=False)
     tracks_distance = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    note = db.Column(db.Text)  # shown every time the exercise is used (NOTE_MAX_LENGTH)
 
     muscles = db.relationship(
         "ExerciseMuscle", back_populates="exercise", cascade="all, delete-orphan"
@@ -237,7 +239,7 @@ class WorkoutSet(db.Model):
 class Routine(db.Model):
     """A saved, ordered set of workouts (e.g. Push / Pull / Legs).
 
-    cycle_days is how many days one pass through the routine takes; analytics scale the
+    cycle_days is how many days one pass through the routine takes; Volume Planning scales the
     routine's sets by 7 / cycle_days to show weekly volume. Validated as 1..365 by the app.
     """
 
@@ -322,6 +324,7 @@ class LogExercise(db.Model):
     exercise_id = db.Column(db.ForeignKey("exercise.id"), nullable=False)
     workout_id = db.Column(db.ForeignKey("workout.id"))  # informational: which workout it was loaded from
     superset_group = db.Column(db.Integer)
+    note = db.Column(db.Text)  # this session only; shown in the exercise's history (NOTE_MAX_LENGTH)
 
     __table_args__ = (db.UniqueConstraint("date", "position"),)
 

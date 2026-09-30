@@ -824,3 +824,41 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .preset-values label { font-weight: 600; }
 .preset-values input[type="text"] { width: 72px; min-height: 44px; text-align: center; font-weight: 600; }
 .preset-values input.invalid { border-color: var(--danger); }
+
+/* Notes (exercise "every time" notes and per-session notes) */
+textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* prevents iOS zoom-on-focus */
+  resize: vertical;
+}
+textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.note {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--border);
+  border-radius: 0 8px 8px 0;
+  background: var(--surface-2);
+  font-size: 0.9rem;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.note.exercise-note { border-left-color: #60a5fa; }
+.note.session-note { border-left-color: var(--accent); }
+.note-kind {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.log-notes { margin: -2px 0 10px; }
+.log-actions .notes-btn { margin-left: auto; }
+.history-day .note { margin: 2px 0 6px; }
+.notes-sheet .form { gap: 14px; }

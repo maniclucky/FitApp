@@ -1,6 +1,6 @@
 // Routine editor: the routine is an ordered array of workout ids (repeats allowed),
 // re-rendered on every change and serialized into the hidden "workout_ids" field on submit.
-// The Analytics tab totals sets per muscle group live from that array (each set counts
+// The Volume Planning tab totals sets per muscle group live from that array (each set counts
 // MUSCLE_SET_WEIGHTS[role], primary 1 / ancillary 0.5), scales them to a week by
 // 7 / cycle_days, and compares them with the per-muscle weekly target inputs. The cycle
 // and target inputs are submitted with the form.
@@ -33,10 +33,10 @@
       </li>`;
     }).join("");
     empty.hidden = ids.length > 0;
-    renderAnalytics();
+    renderVolume();
   }
 
-  // ----- Analytics -----
+  // ----- Volume Planning -----
   // Rows and target inputs are server-rendered (so they submit with the form); this only
   // updates the totals and bars. A bar fills toward the row's target and turns amber past
   // it; with no target there's nothing to fill toward, so the bar is hidden.
@@ -60,7 +60,7 @@
     return raw === "" || !Number.isFinite(n) || n < 0 ? null : n;
   }
 
-  function renderAnalytics() {
+  function renderVolume() {
     const raw = new Map();
     for (const id of ids) {
       for (const [muscle, counts] of Object.entries(byId.get(id).muscles)) {
@@ -96,13 +96,13 @@
   cycleInput.addEventListener("input", () => {
     cycleInput.value = cycleInput.value.replace(/\D/g, "");
     cycleInput.classList.remove("invalid");
-    renderAnalytics();
+    renderVolume();
   });
 
   volumeList.addEventListener("input", (e) => {
     if (e.target.classList.contains("mv-target")) {
       e.target.classList.remove("invalid");
-      renderAnalytics();
+      renderVolume();
     }
   });
 
@@ -130,7 +130,7 @@
     }
     presetStatus.textContent = `Applied “${preset.name}”. Save the routine to keep it.`;
     presetSheet.close();
-    renderAnalytics();
+    renderVolume();
   });
 
   presetSheet.addEventListener("click", (e) => {
@@ -236,5 +236,5 @@
 
   const restored = restoreDraft();
   render();
-  if (restored) showTab("analytics");
+  if (restored) showTab("volume");
 })();

@@ -61,6 +61,20 @@ EXERCISES = {
     "Jump Rope": (["time"], ["Calves"], ["Front Deltoid", "Forearms"]),
 }
 
+# Notes shown every time the exercise is used.
+EXERCISE_NOTES = {
+    "Barbell Bench Press": "Shoulder blades pinned. Bar touches just below the nipple line.",
+    "Lateral Raise": "Lead with the elbows, no swinging.",
+    "Rowing Machine": "Damper on 5.",
+}
+# Session notes, handed out in turn to the first exercise of every third session.
+SESSION_NOTES = [
+    "Felt strong. Try adding weight next time.",
+    "Left elbow a bit sore on the last set.",
+    "Short on sleep; kept it easy.",
+    "Gym was busy, rested longer than planned.",
+]
+
 
 def sets(*specs):
     """Set specs: '8-12', '8+' (min only), '-12' (max only), '10' (exact), 'AMRAP', '' (no target)."""
@@ -130,7 +144,7 @@ ROUTINES = {
     "Full Body A / B": ["Full Body Circuit", "Conditioning", "Full Body Circuit"],
 }
 
-# routine name: days one pass takes (analytics scale to weekly by 7 / days); default 7.
+# routine name: days one pass takes (Volume Planning scales to weekly by 7 / days); default 7.
 ROUTINE_CYCLE_DAYS = {"Full Body A / B": 5}
 
 # routine name: {muscle: weekly target sets}. A mix of under, met, and over target;
@@ -217,10 +231,14 @@ def seed_history(workouts):
             for log_set in entry.sets:
                 fill_set(log_set, ex_name, week, rng)
                 log_set.completed_at = done_at
+        if i % 3 == 0:
+            entries[0].note = SESSION_NOTES[(i // 3) % len(SESSION_NOTES)]
         if i == len(sessions) - 1:  # leave the latest session unfinished to show a partial day
             for log_set in entries[-1].sets:
                 log_set.completed_at = None
                 log_set.weight = log_set.reps = log_set.duration_seconds = log_set.distance = None
+            # A note with no sets still shows in that exercise's history.
+            entries[-1].note = "Ran out of time. Do these first next session."
     return len(sessions)
 
 
@@ -280,7 +298,8 @@ def remove():
 def seed():
     exercises = {}
     for name, (modes, primary, ancillary) in EXERCISES.items():
-        ex = Exercise(name=DEMO_PREFIX + name, **{f"tracks_{m}": m in modes for m in TRACKING_MODES})
+        ex = Exercise(name=DEMO_PREFIX + name, note=EXERCISE_NOTES.get(name),
+                      **{f"tracks_{m}": m in modes for m in TRACKING_MODES})
         for role, muscles in (("primary", primary), ("ancillary", ancillary)):
             for muscle in muscles:
                 ex.muscles.append(ExerciseMuscle(muscle_group=get_or_create_muscle(muscle), role=role))

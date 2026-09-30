@@ -24,7 +24,7 @@
 
   <div class="segmented two" role="tablist" aria-label="Routine sections">
     <button type="button" role="tab" id="tab-workouts" aria-controls="panel-workouts" aria-selected="true" data-tab="workouts">Workouts</button>
-    <button type="button" role="tab" id="tab-analytics" aria-controls="panel-analytics" aria-selected="false" tabindex="-1" data-tab="analytics">Analytics</button>
+    <button type="button" role="tab" id="tab-volume" aria-controls="panel-volume" aria-selected="false" tabindex="-1" data-tab="volume">Volume Planning</button>
   </div>
 
   <div class="field" role="tabpanel" id="panel-workouts" aria-labelledby="tab-workouts">
@@ -34,7 +34,7 @@
     <button type="button" class="button subtle block" id="open-picker">+ Add workout</button>
   </div>
 
-  <div class="field" role="tabpanel" id="panel-analytics" aria-labelledby="tab-analytics" hidden>
+  <div class="field" role="tabpanel" id="panel-volume" aria-labelledby="tab-volume" hidden>
     <div class="cycle-days">
       <label for="cycle_days">Days to complete the routine</label>
       <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off"

@@ -1,5 +1,5 @@
 // Day view: autosaving set fields, completion checks, add/remove sets, the "+ Add" sheet
-// (routines/workouts/exercises), per-exercise history, long-press reordering, the history
+// (routines/workouts/exercises), per-exercise history and notes, long-press reordering, the history
 // calendar, and swipe (or arrow-key) navigation.
 // Field edits save in place; structural changes reload the page (scroll is kept).
 (function () {
@@ -328,6 +328,44 @@
       if (request === historyRequest) historyBody.innerHTML = html;
     } catch {
       if (request === historyRequest) historyBody.innerHTML = '<p class="empty small">Couldn’t load the history. Please try again.</p>';
+    }
+  });
+
+  // ---------- notes ----------
+  // Notes opens a sheet with the exercise's "every time" note (stored on the exercise, so
+  // it shows on every card for it) and this entry's session note (kept in its history).
+
+  const notesSheet = document.getElementById("notes-sheet");
+  const notesForm = document.getElementById("notes-form");
+  const exerciseNote = document.getElementById("exercise-note");
+  const sessionNote = document.getElementById("session-note");
+  let notesFor = null;
+  wireSheet(notesSheet);
+
+  day.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-notes]");
+    if (!btn) return;
+    notesFor = btn.dataset.notes;
+    document.getElementById("notes-sheet-title").textContent = btn.dataset.name;
+    exerciseNote.value = btn.dataset.exerciseNote;
+    sessionNote.value = btn.dataset.sessionNote;
+    notesSheet.showModal();
+    (btn.dataset.sessionNote || !btn.dataset.exerciseNote ? sessionNote : exerciseNote).focus();
+  });
+
+  notesForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const submit = notesForm.querySelector("[type=submit]");
+    submit.disabled = true;
+    try {
+      await api("PATCH", `/api/log-exercises/${notesFor}/notes`, {
+        exercise_note: exerciseNote.value,
+        session_note: sessionNote.value,
+      });
+      location.reload();
+    } catch (err) {
+      submit.disabled = false;
+      toast(err.message);
     }
   });
 

@@ -17,6 +17,7 @@
   <p class="muscles"><strong>Primary:</strong> {{ exercise.muscle_names('primary')|join(', ') }}</p>
   {% set ancillary = exercise.muscle_names('ancillary') %}
   {% if ancillary %}<p class="muscles"><strong>Ancillary:</strong> {{ ancillary|join(', ') }}</p>{% endif %}
+  {% if exercise.note %}<p class="note exercise-note">{{ exercise.note }}</p>{% endif %}
 </section>
 
 <h2 class="section-title">History</h2>
