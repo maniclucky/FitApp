@@ -1,0 +1,99 @@
+{
+  "_doc": "Operations replayed by both the Flask oracle (oracle_scenario.py) and parity.test.ts. {\"$exercise\": name}, {\"$workout\": name}, {\"$routine\": name}, {\"$preset\": name}, {\"$muscle\": name} resolve to ids; {\"$entry\": [date, position]} and {\"$set\": [date, entry position, set position]} to log rows.",
+  "steps": [
+    {"op": "exercise.save", "id": null, "form": {"name": "##Cable   fly ", "tracking": ["weight", "reps"], "primary": ["chest", "upper chest"], "ancillary": ["Front Deltoid", "CHEST", " triceps "], "note": "  Slow eccentric \r\nsqueeze  "}},
+    {"op": "exercise.save", "id": null, "form": {"name": "[demo] barbell bench press", "tracking": [], "primary": [], "ancillary": [], "note": ""}},
+    {"op": "exercise.save", "id": null, "form": {"name": "Long note", "tracking": ["time"], "primary": ["Abs"], "ancillary": [], "note": "NOTE_501"}},
+    {"op": "exercise.save", "id": null, "form": {"name": "Farmer Walk", "tracking": ["weight", "time", "distance", "bogus"], "primary": ["Forearms"], "ancillary": ["Traps", "Forearms"], "note": ""}},
+    {"op": "exercise.save", "id": {"$exercise": "[DEMO] Walking Lunge"}, "form": {"name": "[DEMO] Walking Lunge", "tracking": ["weight", "reps"], "primary": ["Quads", "Glutes"], "ancillary": ["Hamstrings"], "note": "Long strides"}},
+    {"op": "exercise.save", "id": {"$exercise": "[DEMO] Hanging Leg Raise"}, "form": {"name": "[DEMO] Hanging Leg Raise", "tracking": ["time"], "primary": ["Abs"], "ancillary": [], "note": ""}},
+    {"op": "exercise.delete", "id": {"$exercise": "[DEMO] Barbell Bench Press"}},
+    {"op": "exercise.delete", "id": {"$exercise": "Farmer Walk"}},
+
+    {"op": "workout.save", "id": null, "name": "Arms  Day", "items": [
+      {"exercise_id": {"$exercise": "Cable fly"}, "superset_next": true, "sets": [{"min": 8, "max": 12, "amrap": false, "weight": "52.5", "time": "130", "distance": ""}, {"min": "10", "max": "", "amrap": false, "weight": 60}]},
+      {"exercise_id": {"$exercise": "[DEMO] Dumbbell Curl"}, "superset_next": true, "sets": [{"min": null, "max": null, "amrap": true, "weight": "25.125"}, {"min": 12, "max": 8}]},
+      {"exercise_id": {"$exercise": "[DEMO] Plank"}, "superset_next": true, "sets": [{"time": "1:30"}, {"time": "45"}]}
+    ]},
+    {"op": "workout.save", "id": null, "name": "Arms Day", "items": [
+      {"exercise_id": {"$exercise": "Cable fly"}, "superset_next": true, "sets": [{"min": 8, "max": 12, "amrap": false, "weight": "52.5", "time": "130", "distance": ""}, {"min": "10", "max": "", "amrap": false, "weight": 60}]},
+      {"exercise_id": {"$exercise": "[DEMO] Dumbbell Curl"}, "superset_next": true, "sets": [{"min": null, "max": null, "amrap": true, "weight": "25.125"}, {"min": 12, "max": 12}]},
+      {"exercise_id": {"$exercise": "[DEMO] Plank"}, "superset_next": false, "sets": [{"time": "1:30"}, {"time": "45"}]},
+      {"exercise_id": {"$exercise": "[DEMO] Treadmill Run"}, "superset_next": true, "sets": [{"time": "25:00", "distance": "3"}]}
+    ]},
+    {"op": "workout.save", "id": null, "name": "Bad Targets", "items": [
+      {"exercise_id": {"$exercise": "[DEMO] Farmer's Carry"}, "sets": [{"weight": "abc", "time": "1:5x", "distance": "-1"}, {"weight": "10001", "time": "2500:00", "distance": "1.2.3"}]},
+      {"exercise_id": 999999, "sets": [{}]},
+      {"exercise_id": {"$exercise": "[DEMO] Plank"}, "sets": []}
+    ]},
+    {"op": "workout.save", "id": null, "name": "", "items": "not json"},
+    {"op": "workout.save", "id": null, "name": "[demo] push day", "items": []},
+    {"op": "workout.save", "id": {"$workout": "[DEMO] Leg Day"}, "name": "[DEMO] Leg Day", "items": [
+      {"exercise_id": {"$exercise": "[DEMO] Back Squat"}, "superset_next": false, "sets": [{"min": 5, "max": 5, "weight": "225"}, {"min": 5, "max": 5, "weight": "225"}]},
+      {"exercise_id": {"$exercise": "[DEMO] Walking Lunge"}, "superset_next": true, "sets": [{"min": 10, "max": 12}]},
+      {"exercise_id": {"$exercise": "[DEMO] Standing Calf Raise"}, "superset_next": true, "sets": [{"min": 15}]}
+    ]},
+    {"op": "workout.delete", "id": {"$workout": "[DEMO] Pull Day"}},
+    {"op": "workout.delete", "id": {"$workout": "Arms Day"}},
+    {"op": "workout.save", "id": null, "name": "Arms Day", "items": [
+      {"exercise_id": {"$exercise": "Cable fly"}, "superset_next": true, "sets": [{"min": 8, "max": 12, "weight": "52.5"}, {"min": 8, "max": 12, "weight": "55"}]},
+      {"exercise_id": {"$exercise": "[DEMO] Dumbbell Curl"}, "superset_next": false, "sets": [{"min": 10}, {"min": 10}, {"amrap": true}]}
+    ]},
+
+    {"op": "routine.save", "id": null, "form": {"name": "A/B/A", "workout_ids": [{"$workout": "Arms Day"}, {"$workout": "[DEMO] Leg Day"}, {"$workout": "Arms Day"}], "cycle_days": " 6 ", "targets": {"Chest": "10", "Biceps": "8.125", "Quads": "", "Abs": "0"}}},
+    {"op": "routine.save", "id": null, "form": {"name": "a/b/a", "workout_ids": "[1, 999999]", "cycle_days": "0", "targets": {"Chest": "abc", "Lats": "1000"}}},
+    {"op": "routine.save", "id": null, "form": {"name": "Empty", "workout_ids": [], "cycle_days": "7", "targets": {}}},
+    {"op": "routine.save", "id": {"$routine": "[DEMO] Push / Pull / Legs"}, "form": {"name": "[DEMO] Push / Pull / Legs", "workout_ids": [{"$workout": "[DEMO] Push Day"}, {"$workout": "[DEMO] Pull Day"}, {"$workout": "[DEMO] Leg Day"}], "cycle_days": "4", "targets": {"Chest": "12", "Side Deltoid": "9.5"}}},
+    {"op": "routine.delete", "id": {"$routine": "[DEMO] Full Body A / B"}},
+
+    {"op": "preset.save", "id": null, "name": " Hypertrophy ", "values": {"Chest": "12", "Biceps": "", "Quads": "10.555"}},
+    {"op": "preset.save", "id": null, "name": "minimum", "values": {"Chest": "-3"}},
+    {"op": "preset.save", "id": {"$preset": "Maintenance"}, "name": "Maintenance", "values": {"Chest": "3", "Calves": "2"}},
+    {"op": "preset.delete", "id": {"$preset": "[DEMO] Balanced"}},
+
+    {"op": "day.loadRoutine", "date": "2036-01-05", "routine": {"$routine": "A/B/A"}},
+    {"op": "day.loadRoutine", "date": "2036-01-06", "routine": {"$routine": "A/B/A"}},
+    {"op": "day.loadRoutine", "date": "2036-01-07", "routine": {"$routine": "A/B/A"}},
+    {"op": "day.loadRoutine", "date": "2036-01-08", "routine": {"$routine": "A/B/A"}},
+    {"op": "day.loadRoutine", "date": "2036-01-05", "routine": {"$routine": "A/B/A"}, "index": 1},
+    {"op": "day.loadRoutine", "date": "2036-01-05", "routine": {"$routine": "A/B/A"}, "index": 7},
+    {"op": "day.loadWorkout", "date": "2036-01-05", "workout": {"$workout": "Arms Day"}},
+    {"op": "day.addExercises", "date": "2036-01-05", "ids": [{"$exercise": "[DEMO] Plank"}, {"$exercise": "Cable fly"}, {"$exercise": "[DEMO] Plank"}]},
+    {"op": "day.addExercises", "date": "2036-01-05", "ids": [999999]},
+    {"op": "day.reorder", "date": "2036-01-06", "ids": [{"$entry": ["2036-01-06", 3]}, {"$entry": ["2036-01-06", 1]}, {"$entry": ["2036-01-06", 2]}]},
+    {"op": "day.reorder", "date": "2036-01-05", "ids": [{"$entry": ["2036-01-05", 1]}, {"$entry": ["2036-01-05", 3]}]},
+    {"op": "day.reorder", "date": "2036-01-05", "ids": "ALL_ROTATED_1"},
+    {"op": "day.updateSet", "set": {"$set": ["2036-01-06", 1, 1]}, "data": {"weight": "225.555", "reps": "5", "completed": true}},
+    {"op": "day.updateSet", "set": {"$set": ["2036-01-06", 1, 2]}, "data": {"weight": "abc", "reps": 5}},
+    {"op": "day.updateSet", "set": {"$set": ["2036-01-06", 1, 2]}, "data": {"weight": "", "reps": "5.5"}},
+    {"op": "day.updateSet", "set": {"$set": ["2036-01-06", 1, 2]}, "data": {"duration_seconds": 90, "distance": "0.125", "completed": 0}},
+    {"op": "day.updateSet", "set": {"$set": ["2036-01-06", 1, 1]}, "data": {"completed": true}},
+    {"op": "day.addSet", "entry": {"$entry": ["2036-01-06", 1]}},
+    {"op": "day.removeLastSet", "entry": {"$entry": ["2036-01-06", 1]}},
+    {"op": "day.removeLastSet", "entry": {"$entry": ["2036-01-06", 1]}},
+    {"op": "day.updateSet", "set": {"$set": ["2036-01-06", 1, 2]}, "data": {"completed": true}},
+    {"op": "day.removeLastSet", "entry": {"$entry": ["2036-01-06", 1]}},
+    {"op": "day.notes", "entry": {"$entry": ["2036-01-06", 1]}, "data": {"exercise_note": "  Low bar \r\n", "session_note": "Felt heavy"}},
+    {"op": "day.notes", "entry": {"$entry": ["2036-01-06", 1]}, "data": {"session_note": "NOTE_501", "exercise_note": "should not save"}},
+    {"op": "day.notes", "entry": {"$entry": ["2036-01-06", 2]}, "data": {"session_note": "Skipped, knee"}},
+    {"op": "day.deleteEntry", "entry": {"$entry": ["2036-01-07", 2]}},
+    {"op": "day.clear", "date": "2036-01-08"},
+
+    {"op": "read.history", "exercise": {"$exercise": "[DEMO] Barbell Bench Press"}},
+    {"op": "read.history", "exercise": {"$exercise": "[DEMO] Back Squat"}, "before": "2036-01-06"},
+    {"op": "read.history", "exercise": {"$exercise": "Cable fly"}},
+    {"op": "read.history", "exercise": {"$exercise": "[DEMO] Treadmill Run"}},
+    {"op": "read.nextIndex", "routine": {"$routine": "A/B/A"}, "dates": ["2035-12-31", "2036-01-05", "2036-01-06", "2036-01-07", "2036-01-09"]},
+    {"op": "read.nextIndex", "routine": {"$routine": "[DEMO] Push / Pull / Legs"}, "dates": ["TODAY", "2026-09-15"]},
+    {"op": "read.progress", "start": null, "end": null},
+    {"op": "read.progress", "start": "2036-01-01", "end": "2036-01-31"},
+    {"op": "read.progress", "start": "2026-09-01", "end": "2026-09-20"},
+    {"op": "read.progressRange", "start": "2026-09-20", "end": "2026-09-01"},
+    {"op": "read.summaries"},
+    {"op": "read.blockers"},
+    {"op": "read.picker"},
+    {"op": "read.calendar", "month": "2036-01"},
+    {"op": "read.day", "date": "2036-01-05"},
+    {"op": "read.day", "date": "2036-01-06"}
+  ]
+}

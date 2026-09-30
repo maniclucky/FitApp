@@ -8,7 +8,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "1.0"
+        versionName "0.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +16,25 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Release signing: key and passwords live outside the repo, in ~/.fitapp-release/keystore.properties
+    // (or the file named by FITAPP_KEYSTORE_PROPERTIES). Without it, release builds are unsigned.
+    // Every update must be signed with this same key, or phones refuse to install it over the old app.
+    def releaseProps = new Properties()
+    def releasePropsFile = file(System.getenv("FITAPP_KEYSTORE_PROPERTIES") ?: "${System.getProperty('user.home')}/.fitapp-release/keystore.properties")
+    if (releasePropsFile.exists()) releasePropsFile.withInputStream { releaseProps.load(it) }
+    signingConfigs {
+        release {
+            if (releasePropsFile.exists()) {
+                storeFile file(releaseProps['storeFile'])
+                storePassword releaseProps['storePassword']
+                keyAlias releaseProps['keyAlias']
+                keyPassword releaseProps['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
+            if (releasePropsFile.exists()) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

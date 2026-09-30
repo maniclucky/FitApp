@@ -16,6 +16,13 @@ Mobile-first fitness & health web app (targets phone screens), built in Python w
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # first time only
 .venv/bin/python app.py                                              # http://127.0.0.1:5000
 ```
+Mobile app (`mobile/`, the offline Capacitor app replacing Flask):
+```bash
+cd mobile && npm install && npm test          # unit + Flask-parity tests
+npm run dev                                   # browser dev server, http://127.0.0.1:5173
+npm run android && (cd android && ./gradlew assembleDebug)   # APK (needs JAVA_HOME=~/android-studio/jbr)
+```
+
 Startup applies any pending database migrations (Flask-Migrate, `migrations/`). Schema changes need a new migration; see `agent-notes/data-model.md` for the workflow.
 
 ## Demo data

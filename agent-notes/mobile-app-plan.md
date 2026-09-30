@@ -1,7 +1,7 @@
 # Mobile app plan
 Decision and constraints for turning FitApp into a standalone Android/iPhone app.
 
-Last updated: 2026-09-30
+Last updated: 2026-09-30 (port complete on Android; release + iPhone pending)
 
 ## Decision (user, 2026-09-30)
 - **Everything runs on the phone.** The Python logic is ported to TypeScript, with an on-device SQLite database, wrapped with **Capacitor**. The existing HTML/CSS/JS is reused as far as possible.
@@ -31,6 +31,56 @@ Last updated: 2026-09-30
 - The schema starts from Alembic head `0005`; on-device schema versions replace Flask-Migrate.
 - Units stay lb/mi, and the long-press drag still needs real-touchscreen testing.
 
+## Status (2026-09-30)
+- **Done:**
+  - Schema v1 and backups (phase 2).
+  - All logic ported with parity tests (phase 3).
+  - All screens ported (phase 4).
+  - Android native features: back button, share-sheet export, haptics, background rest notification.
+  - Tested in Firefox (34 checks, output compared with Flask on the same data) and on an Android 16 emulator (12 checks).
+- **Release signing (set up 2026-09-30):** the key is at `~/.fitapp-release/fitapp-release.jks` (alias `fitapp`, RSA 4096, valid 10000 days, SHA-256 `f3:83:8f:bf:…:f4:f5:df`). Its random password is in `~/.fitapp-release/keystore.properties` (mode 600). Both are outside the repo, and the user must back them up off this machine.
+  - `android/app/build.gradle` reads that file, or the one named by `FITAPP_KEYSTORE_PROPERTIES`. Without it, release builds are unsigned.
+  - **Every update must be signed with this same key**, or phones refuse to install it over the old app.
+  - Build with `./gradlew assembleRelease`, which produces `app/build/outputs/apk/release/app-release.apk`. Check it with `apksigner verify --print-certs`.
+  - Bump `versionCode` (and `versionName`) in `app/build.gradle` for each release shared with friends.
+  - Release builds can't be debugged over CDP or read with `run-as`, so test them with adb taps and screenshots.
+- **Backups:** Library → Backup. Export goes to the share sheet; Import uses Android's document picker (tested on the signed release APK). Import asks for confirmation first, showing the file's contents, what it replaces, and the export date. The shared confirm panel accepts `data-confirm-label`.
+- **Pending:**
+  - Attach the signed APK to a Codeberg release for friends.
+  - iPhone PWA: manifest, service worker, icons, and a stable HTTPS host. The user must decide on a public repo for Codeberg Pages versus another host.
+  - App icon and a notification icon (Capacitor defaults for now, per the user).
+  - Retire Flask once the user has moved their data (`scripts/export_for_mobile.py`, then Import).
+
+## Code layout (mobile/src)
+- `db/`: the `Db` interface (`types.ts`), the Capacitor adapter, `schema.ts` (versioned by `PRAGMA user_version`), and `backup.ts`.
+- `logic/`: the port of `app.py`, one module per area. It's pure data work over `Db`, with no DOM, so it's unit-testable under Node.
+- `ui/app.ts`: the shell.
+  - Hash routes and the bottom bar.
+  - Flash messages.
+  - The shared delete confirmation: a button has `data-confirm-delete="<key>"`, and the view registers `ctx.onDelete(key, action)`.
+  - `stash()`/`takeStash()` carry a rejected form's errors and values across the re-render.
+  - Every navigation re-renders from scratch and aborts the previous view's listeners, so views add listeners with `{ signal }`.
+- `ui/views/`: one file per area. Each is a lit-html template plus a `mount()` holding the old `static/*.js` behaviour.
+- `ui/native.ts`: Capacitor plugins, with web fallbacks.
+
+## Tests
+- `npm test` (vitest, sql.js under Node):
+  - `backup.test.ts`: schema, cascades, backup round trip.
+  - `text.test.ts`: helpers against `test/parity/oracle_text.py` output.
+  - `parity.test.ts`: replays `test/parity/scenario.json` (69 steps) and must match the Flask oracle's results and final tables exactly.
+- Regenerate the fixtures (gitignored, personal data) with `../.venv/bin/python test/parity/oracle_text.py`, `test/parity/oracle_scenario.py` and `../scripts/export_for_mobile.py test/fixtures/flask-backup.json` (from `mobile/`).
+- **On-device testing:** Playwright's `connect_over_cdp` can't attach to an Android WebView; it disconnects. Instead:
+  1. Forward the WebView's page socket: `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`.
+  2. Send `Runtime.evaluate` over `ws://127.0.0.1:9333/devtools/page/<id>` with websocket-client.
+  3. Drive native parts with adb (`input keyevent BACK/HOME`, `dumpsys notification`, `run-as ... cat databases/fitappSQLite.db`).
+  - Grant `POST_NOTIFICATIONS` with `pm grant` for tests.
+
+## Gotchas found during the port
+- **`canGoBack` is unreliable here:** the Android WebView's `canGoBack` (from the App plugin's backButton event) ignores `#` route changes. Use `history.length` instead.
+- **Row counts from `run()` include cascaded deletes** on the Capacitor web/Android backends, but not under plain sql.js. Never use them for user-facing counts; `COUNT(*)` first.
+- **Match Python where output is compared:** `{:g}` formatting (`formatG`), `round(x, 2)` rounding exact halves to even (`round2`, checked against the exact binary expansion), `%` never being negative, `str.title()`/`islower()`, and truncation by characters.
+- **`clean_name` only strips `#` at the very start:** `"  ##x"` keeps its `#`s because the leading whitespace comes first. Flask behaves the same way.
+
 ## Toolchain (set up and proven 2026-09-30)
 - The code lives in `mobile/` (Vite + TypeScript + lit-html + Capacitor 8 + `@capacitor-community/sqlite`), on branch `feature/mobile-app`. `mobile/src/main.ts` is currently only a SQLite smoke test.
 - **Node** v24 LTS comes from **nvm** (`~/.nvm`, loaded by `~/.bashrc`). In a non-interactive shell, run `export NVM_DIR=$HOME/.nvm; . $NVM_DIR/nvm.sh` first.
@@ -42,6 +92,7 @@ Last updated: 2026-09-30
     - `uiautomator dump` is flaky with the WebView and sometimes returns nothing, so don't trust it for assertions.
     - Verify data by copying the DB out: `adb exec-out run-as org.fitapp.app cat databases/fitappSQLite.db > x.db` (the plugin appends `SQLite.db` to the name).
     - Screenshots are 1080×2400; recompute tap coordinates after the layout changes.
+- **Don't `pkill -f <pattern>` from a shell whose own command line contains the pattern:** it kills that shell. Stop servers by port (`fuser -k 4173/tcp`).
 - **Gotcha: sql.js version pin.** jeep-sqlite 2.8.0 (the browser backend) bundles **sql.js 1.11.0** JavaScript, and the `sql-wasm.wasm` it loads from `public/assets/` must be the same version. Otherwise it fails with `LinkError: import object field 'I' is not a Function` and hangs at startup. `sql.js` is pinned to exactly 1.11.0, and `postinstall` copies its wasm (the copy is gitignored). Re-check the pin whenever jeep-sqlite is upgraded.
 - In the browser, writes stay in memory until `saveToStore` (`persist()` in `src/db.ts`), so call it after every write.
 - Flask keeps running as the reference app on port 5000 during the port.
