@@ -13,6 +13,9 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- The app's dark background behind the status/navigation bars (older WebViews pad the
+             app below the status bar; this keeps that strip dark so the light icons stay readable). -->
+        <item name="android:windowBackground">@color/fitapp_background</item>
     </style>
 
 

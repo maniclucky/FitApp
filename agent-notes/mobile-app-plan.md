@@ -1,7 +1,7 @@
 # Mobile app plan
 Decision and constraints for turning FitApp into a standalone Android/iPhone app.
 
-Last updated: 2026-09-30 (port complete on Android; release + iPhone pending)
+Last updated: 2026-10-01 (port complete on Android; release + iPhone pending)
 
 ## Decision (user, 2026-09-30)
 - **Everything runs on the phone.** The Python logic is ported to TypeScript, with an on-device SQLite database, wrapped with **Capacitor**. The existing HTML/CSS/JS is reused as far as possible.
@@ -92,6 +92,11 @@ Last updated: 2026-09-30 (port complete on Android; release + iPhone pending)
     - `uiautomator dump` is flaky with the WebView and sometimes returns nothing, so don't trust it for assertions.
     - Verify data by copying the DB out: `adb exec-out run-as org.fitapp.app cat databases/fitappSQLite.db > x.db` (the plugin appends `SQLite.db` to the name).
     - Screenshots are 1080×2400; recompute tap coordinates after the layout changes.
+- **Status bar / camera overlap (edge-to-edge):**
+  - On Android WebView ≥ Chromium 140, Capacitor 8 draws the app edge-to-edge, and `env(safe-area-inset-*)` and the injected `--safe-area-inset-*` carry the real insets. Below 140, Capacitor pads the WebView itself and both are 0.
+  - `style.css` pads `.screen` by `--inset-top` (the max of the two) and uses `--inset-bottom` at the bottom, so neither case double-pads.
+  - The window/WebView background is the app's dark colour (`colors.xml`, `backgroundColor` in `capacitor.config.ts`), and SystemBars `style: "DARK"` gives light status-bar icons.
+  - The emulator image has Chromium 133, so it **can't show the edge-to-edge case**. Simulate it in a browser by setting `--safe-area-inset-top` on `:root`.
 - **Don't `pkill -f <pattern>` from a shell whose own command line contains the pattern:** it kills that shell. Stop servers by port (`fuser -k 4173/tcp`).
 - **Gotcha: sql.js version pin.** jeep-sqlite 2.8.0 (the browser backend) bundles **sql.js 1.11.0** JavaScript, and the `sql-wasm.wasm` it loads from `public/assets/` must be the same version. Otherwise it fails with `LinkError: import object field 'I' is not a Function` and hangs at startup. `sql.js` is pinned to exactly 1.11.0, and `postinstall` copies its wasm (the copy is gitignored). Re-check the pin whenever jeep-sqlite is upgraded.
 - In the browser, writes stay in memory until `saveToStore` (`persist()` in `src/db.ts`), so call it after every write.
