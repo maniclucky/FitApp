@@ -84,6 +84,8 @@ route(/^\/exercises\/new$/, (ctx) => exerciseForm(ctx, null));
 route(/^\/exercises\/(\d+)\/edit$/, async (ctx) => exerciseForm(ctx, await getExercise(ctx.db, Number(ctx.params[0]))));
 
 type FormStash = { errors: string[]; form: ExerciseForm };
+// Set by "Save & add another" so the fresh form opens with the name field focused.
+let focusNameOnMount = false;
 
 async function exerciseForm(ctx: Ctx, exercise: Exercise | null) {
   const stashed = takeStash<FormStash>();
@@ -127,7 +129,7 @@ async function exerciseForm(ctx: Ctx, exercise: Exercise | null) {
       <form class="form" id="exercise-form" novalidate>
         <div class="field">
           <label for="name">Name</label>
-          <input id="name" name="name" type="text" maxlength="100" required autocomplete="off" placeholder="e.g. Bench Press" .value=${form.name}>
+          <input id="name" name="name" type="text" maxlength="100" required autocomplete="off" autocapitalize="words" placeholder="e.g. Bench Press" .value=${form.name}>
         </div>
         <fieldset class="field">
           <legend>Track</legend>
@@ -148,10 +150,13 @@ async function exerciseForm(ctx: Ctx, exercise: Exercise | null) {
           <textarea id="note" name="note" rows="3" maxlength=${NOTE_MAX_LENGTH} .value=${form.note}></textarea>
         </div>
         <button type="submit" class="button block">Save exercise</button>
+        ${exercise ? "" : html`<button type="submit" class="button subtle block" data-another>Save &amp; add another</button>`}
       </form>
       ${exercise ? deleteButton(exercise, blocked, true) : ""}`,
     mount(root: HTMLElement, signal: AbortSignal) {
       mountMuscleChips(root, signal);
+      if (focusNameOnMount) root.querySelector<HTMLInputElement>("#name")!.focus();
+      focusNameOnMount = false;
       const formEl = root.querySelector<HTMLFormElement>("#exercise-form")!;
       formEl.addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -166,7 +171,11 @@ async function exerciseForm(ctx: Ctx, exercise: Exercise | null) {
         const result = await saveExercise(ctx.db, exercise?.id ?? null, input);
         if (result.ok) {
           flash(`Saved “${result.name}”.`);
-          navigate(`#/exercises/${result.id}`);
+          // An edit returns to the exercise page; a new exercise goes back to the list, or to a
+          // blank form to add another.
+          const another = (e as SubmitEvent).submitter?.hasAttribute("data-another") ?? false;
+          focusNameOnMount = another;
+          navigate(exercise ? `#/exercises/${exercise.id}` : another ? "#/exercises/new" : "#/exercises");
         } else {
           stash({ errors: result.errors, form: result.form } satisfies FormStash);
           await refresh();

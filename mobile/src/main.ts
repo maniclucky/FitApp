@@ -1,8 +1,9 @@
 // App start: open the on-device database, bring its schema up to date, make sure the default
-// muscle groups exist (and, on a brand-new install, the default presets), then show the app.
+// muscle groups exist (and, on a brand-new install, the default presets and exercises), then show the app.
 import "./style.css";
 import { openCapacitorDb } from "./db/capacitor";
 import { migrate } from "./db/schema";
+import { seedDefaultExercises } from "./logic/exercises";
 import { syncMuscleGroups } from "./logic/muscles";
 import { seedDefaultPresets } from "./logic/presets";
 import { start } from "./ui/app";
@@ -18,7 +19,10 @@ async function main() {
   const db = await openCapacitorDb();
   const fromVersion = await migrate(db);
   await syncMuscleGroups(db);
-  if (fromVersion === 0) await seedDefaultPresets(db);
+  if (fromVersion === 0) {
+    await seedDefaultPresets(db);
+    await seedDefaultExercises(db);
+  }
   initBackButton();
   start(db);
 }

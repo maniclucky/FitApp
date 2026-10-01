@@ -89,7 +89,7 @@ async function builder(ctx: Ctx, workout: Workout | null) {
       <form class="form" id="builder-form" novalidate>
         <div class="field">
           <label for="name">Name</label>
-          <input id="name" name="name" type="text" maxlength="100" required autocomplete="off" placeholder="e.g. Push Day" .value=${name}>
+          <input id="name" name="name" type="text" maxlength="100" required autocomplete="off" autocapitalize="words" placeholder="e.g. Push Day" .value=${name}>
         </div>
         <div class="field">
           <span class="field-label">Exercises</span>

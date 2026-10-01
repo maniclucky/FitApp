@@ -178,3 +178,70 @@ export async function exercisePickerData(db: Db): Promise<{ options: PickerOptio
   const muscles = (await orderedMuscleGroups(db)).map((m) => m.name).filter((m) => used.has(m.toLowerCase()));
   return { options, muscles };
 }
+
+// The default exercise library from exerciseImport.ods, so a fresh install starts with it.
+// Each row is [base name, equipment, primary, ancillary]: one exercise per equipment entry,
+// named "<equipment> <base>", or just the base for PLAIN (the sheet's "No equipment" and
+// "Special equipment" columns). Every Barbell exercise also gets a Smith Machine version
+// (user, 2026-10-01). All track weight and reps.
+const PLAIN = "";
+const DEFAULT_EXERCISE_ROWS: [string, string[], string[], string[]][] = [
+  ["Bench Press", ["Barbell", "Dumbbell", "Machine", "Cable"], ["Chest"], ["Triceps", "Front Deltoid"]],
+  ["Flye", ["Dumbbell", "Machine", "Cable"], ["Chest"], []],
+  ["Hammer Press", ["Dumbbell", "Machine", "Cable"], ["Chest"], ["Triceps", "Front Deltoid"]],
+  ["Shoulder Press", ["Barbell", "Dumbbell", "Machine", "Cable"], ["Front Deltoid"], ["Side Deltoid"]],
+  ["Front Raise", ["Dumbbell", "Cable"], ["Front Deltoid"], []],
+  ["Upright Row", ["Barbell", "Dumbbell", "Cable", "EZ Bar"], ["Side Deltoid"], ["Traps"]],
+  ["Lateral Raise", ["Dumbbell", "Machine", "Cable"], ["Side Deltoid"], []],
+  ["Face Pull", ["Dumbbell", "Cable"], ["Rear Deltoid"], []],
+  ["Rear Raise", ["Dumbbell", "Machine", "Cable"], ["Rear Deltoid"], []],
+  ["Tricep Extension", ["Machine"], ["Triceps"], []],
+  ["Push Down", ["Cable"], ["Triceps"], []],
+  ["Skullcrusher", ["Barbell", "Dumbbell", "EZ Bar"], ["Triceps"], []],
+  ["Overhead Extension", ["Dumbbell", "Cable"], ["Triceps"], []],
+  ["Dips", [PLAIN], ["Triceps"], ["Chest"]],
+  ["Curl", ["Barbell", "Dumbbell", "Machine", "Cable", "EZ Bar"], ["Biceps"], ["Forearms"]],
+  ["Hammer Curl", ["Dumbbell", "Machine", "Cable"], ["Biceps"], ["Forearms"]],
+  ["Row", ["Barbell", "Dumbbell", "Machine", "Cable"], ["Upper Back"], ["Biceps"]],
+  ["Pullup", [PLAIN], ["Lats"], ["Biceps"]],
+  ["Neutral Pullup", [PLAIN], ["Lats"], ["Biceps"]],
+  ["Chinup", [PLAIN], ["Lats"], ["Biceps"]],
+  ["Pulldown", ["Machine", "Cable"], ["Lats"], ["Biceps"]],
+  ["One Arm Pulldown", ["Machine", "Cable"], ["Lats"], []],
+  ["Shrug", ["Barbell", "Dumbbell"], ["Traps"], []],
+  ["Squat", ["Barbell", "Dumbbell"], ["Quads"], ["Glutes"]],
+  ["Goblet Squat", ["Dumbbell"], ["Quads"], ["Glutes"]],
+  ["Hack Squat", [PLAIN], ["Quads"], ["Glutes"]],
+  ["Leg Press", [PLAIN], ["Quads"], []],
+  ["Leg Extension", [PLAIN], ["Quads"], []],
+  ["One Leg Extension", [PLAIN], ["Quads"], []],
+  ["Glute Press", ["Barbell", PLAIN], ["Glutes"], []],
+  ["Kickback", ["Machine", "Cable"], ["Glutes"], []],
+  ["Deadlift", ["Barbell", "Dumbbell"], ["Hamstrings"], ["Glutes", "Lower Back"]],
+  ["Romanian Deadlift", ["Barbell", "Dumbbell"], ["Hamstrings"], ["Glutes", "Lower Back"]],
+  ["Hyperextension", [PLAIN], ["Hamstrings"], ["Glutes"]],
+  ["Leg Curl", [PLAIN], ["Hamstrings"], []],
+  ["Calf Press", [PLAIN], ["Calves"], []],
+];
+
+export const DEFAULT_EXERCISES = DEFAULT_EXERCISE_ROWS.flatMap(([base, equipment, primary, ancillary]) =>
+  equipment.flatMap((e) => (e === "Barbell" ? [e, "Smith Machine"] : [e]))
+    .map((e) => ({ name: e ? `${e} ${base}` : base, primary, ancillary })));
+
+/** Adds DEFAULT_EXERCISES, skipping any name that already exists. */
+export async function seedDefaultExercises(db: Db): Promise<void> {
+  await db.transaction(async () => {
+    for (const { name, primary, ancillary } of DEFAULT_EXERCISES) {
+      if (await get(db, "SELECT 1 FROM exercise WHERE name = ?", [name])) continue;
+      const exerciseId = (await db.run(
+        "INSERT INTO exercise (name, tracks_weight, tracks_reps, created_at) VALUES (?, 1, 1, ?)", [name, utcNow()],
+      )).lastId;
+      for (const [role, muscles] of [["primary", primary], ["ancillary", ancillary]] as const) {
+        for (const muscle of muscles) {
+          await db.run("INSERT INTO exercise_muscle (exercise_id, muscle_group_id, role) VALUES (?, ?, ?)",
+            [exerciseId, await getOrCreateMuscle(db, muscle), role]);
+        }
+      }
+    }
+  });
+}

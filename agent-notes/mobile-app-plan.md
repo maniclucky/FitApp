@@ -44,6 +44,12 @@ Last updated: 2026-10-01 (port complete on Android; release + iPhone pending)
   - Build with `./gradlew assembleRelease`, which produces `app/build/outputs/apk/release/app-release.apk`. Check it with `apksigner verify --print-certs`.
   - Bump `versionCode` (and `versionName`) in `app/build.gradle` for each release shared with friends.
   - Release builds can't be debugged over CDP or read with `run-as`, so test them with adb taps and screenshots.
+- **Default data (fresh install only, `fromVersion === 0` in `main.ts`):** the presets from `defaultOptions.ods` (`DEFAULT_PRESETS`) and 86 exercises from `exerciseImport.ods` (`DEFAULT_EXERCISES` in `logic/exercises.ts`, user, 2026-10-01).
+  - Sheet rules: each row is a base exercise; every equipment column marked 1 gives `"<Column> <Base>"`, except "No equipment" / "Special equipment", which give the bare base name. Every Barbell exercise also gets a `Smith Machine <Base>` version (user, 2026-10-01). Primary is one muscle; Ancillary is a comma list of 0 or more. All track weight + reps.
+  - The sheet's muscle names are abbreviated (Tricep, Front Delt, Bicep, Forearm, Hamstring); they were mapped to the canonical names when copied into the TS table. `test/defaults.test.ts` fails if a name isn't canonical. The sheet's "Overheard Extension" typo was entered as "Overhead Extension".
+  - Existing installs, and any database replaced by a backup import (e.g. the Flask data), don't get them; the seed skips names that already exist, so calling `seedDefaultExercises` again is safe.
+- **Name fields (user, 2026-10-01):** routine, workout and exercise name inputs use `autocapitalize="words"`, so the phone keyboard shifts after each space but the user can override it. Names are not title-cased on save.
+- **New exercise flow (user, 2026-10-01):** a new exercise has "Save exercise" (back to the Exercises list) and "Save & add another" (a blank form with the name field focused). Editing an existing exercise still returns to its exercise page.
 - **Backups:** Library → Backup. Export goes to the share sheet; Import uses Android's document picker (tested on the signed release APK). Import asks for confirmation first, showing the file's contents, what it replaces, and the export date. The shared confirm panel accepts `data-confirm-label`.
 - **Pending:**
   - Attach the signed APK to a Codeberg release for friends.

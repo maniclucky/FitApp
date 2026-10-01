@@ -94,7 +94,7 @@ async function routineForm(ctx: Ctx, routine: Routine | null) {
       <form class="form" id="routine-form" novalidate>
         <div class="field">
           <label for="name">Name</label>
-          <input id="name" name="name" type="text" maxlength="100" required autocomplete="off" placeholder="e.g. Push / Pull / Legs" .value=${name}>
+          <input id="name" name="name" type="text" maxlength="100" required autocomplete="off" autocapitalize="words" placeholder="e.g. Push / Pull / Legs" .value=${name}>
         </div>
         <div class="segmented two" role="tablist" aria-label="Routine sections">
           <button type="button" role="tab" id="tab-workouts" aria-controls="panel-workouts" aria-selected="true" data-tab="workouts">Workouts</button>
