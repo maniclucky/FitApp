@@ -10,6 +10,8 @@ import {
 import { formatNumber, MUSCLE_SET_WEIGHTS, truncate1 } from "../../logic/text";
 import { listWorkouts, workoutMuscleSets } from "../../logic/workouts";
 import { type Ctx, currentPath, flash, href, navigate, refresh, route, stash, takeStash } from "../app";
+import { cardCopyButton, copyHref, copyName } from "../copy";
+import { longPressReorder } from "../dragReorder";
 
 const ROUTINE_DELETE_DETAIL = "This removes the routine only. Its workouts and your logged days stay.";
 
@@ -46,6 +48,7 @@ route(/^\/routines$/, async (ctx) => {
                     </a></li>`)}
                 </ol>
               </div>
+              ${cardCopyButton("routines", r.id, r.name)}
               <button type="button" class="icon-btn danger card-delete" aria-label="Delete ${r.name}"
                       data-confirm-delete="routine:${r.id}" data-name=${r.name} data-detail=${ROUTINE_DELETE_DETAIL}>&times;</button>
             </li>`)}
@@ -63,10 +66,12 @@ const drafts = new Map<string, Draft>();
 
 async function routineForm(ctx: Ctx, routine: Routine | null) {
   const stashed = takeStash<RoutineStash>();
-  const name = stashed?.form.name ?? routine?.name ?? "";
-  const workoutIds = stashed?.form.workout_ids ?? routine?.workout_ids ?? [];
-  const cycleDays = stashed?.form.cycle_days ?? (routine ? String(routine.cycle_days) : "7");
-  const targets = stashed?.form.targets ?? targetTexts(routine);
+  const copyId = Number(ctx.query.get("copy"));
+  const source = routine ?? (copyId ? await getRoutine(ctx.db, copyId) : null);
+  const name = stashed?.form.name ?? (routine ? routine.name : source ? copyName(source.name) : "");
+  const workoutIds = stashed?.form.workout_ids ?? source?.workout_ids ?? [];
+  const cycleDays = stashed?.form.cycle_days ?? (source ? String(source.cycle_days) : "7");
+  const targets = stashed?.form.targets ?? targetTexts(source);
   const errors = stashed?.errors ?? [];
   const badTargets = stashed?.badTargets ?? new Set<number>();
   const muscles = await orderedMuscleGroups(ctx.db);
@@ -89,6 +94,7 @@ async function routineForm(ctx: Ctx, routine: Routine | null) {
       <header class="page-header">
         <a class="back" href="#/routines" aria-label="Back to routines">&larr;</a>
         <h1>${routine ? "Edit routine" : "New routine"}</h1>
+        ${routine ? html`<a class="button subtle" href=${copyHref("routines", routine.id)}>Copy</a>` : ""}
       </header>
       ${errors.length ? html`<div class="errors" role="alert"><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ""}
       <form class="form" id="routine-form" novalidate>
@@ -101,7 +107,7 @@ async function routineForm(ctx: Ctx, routine: Routine | null) {
           <button type="button" role="tab" id="tab-volume" aria-controls="panel-volume" aria-selected="false" tabindex="-1" data-tab="volume">Volume Planning</button>
         </div>
         <div class="field" role="tabpanel" id="panel-workouts" aria-labelledby="tab-workouts">
-          <p class="hint">In the order you do them. A workout can appear more than once.</p>
+          <p class="hint">In the order you do them. A workout can appear more than once. Long-press a workout to drag it into a new order.</p>
           <ol class="builder-list" id="routine-list"></ol>
           <p class="empty small" id="routine-empty">No workouts yet.</p>
           <button type="button" class="button subtle block" id="open-picker">+ Add workout</button>
@@ -218,8 +224,6 @@ function mountRoutineEditor(
         <span class="routine-num">${i + 1}</span>
         <div class="wx-title"><h3>${esc(w.name)}</h3><span class="picker-meta">${plural(w.count, "exercise")}</span></div>
         <div class="wx-actions">
-          <button type="button" class="icon-btn" data-act="up" data-i="${i}" aria-label="Move ${esc(w.name)} up" ${i === 0 ? "disabled" : ""}>&uarr;</button>
-          <button type="button" class="icon-btn" data-act="down" data-i="${i}" aria-label="Move ${esc(w.name)} down" ${i === ids.length - 1 ? "disabled" : ""}>&darr;</button>
           <button type="button" class="icon-btn danger" data-act="remove" data-i="${i}" aria-label="Remove ${esc(w.name)}">&times;</button>
         </div>
       </li>`;
@@ -345,17 +349,21 @@ function mountRoutineEditor(
   list.addEventListener("click", (e) => {
     const btn = (e.target as Element).closest<HTMLButtonElement>("button[data-act]");
     if (!btn) return;
-    const i = Number(btn.dataset.i);
-    if (btn.dataset.act === "remove") {
-      ids.splice(i, 1);
-      return render();
-    }
-    const j = i + (btn.dataset.act === "up" ? -1 : 1);
-    [ids[i], ids[j]] = [ids[j], ids[i]];
+    if (btn.dataset.act !== "remove") return;
+    ids.splice(Number(btn.dataset.i), 1);
     render();
-    const next = list.querySelector<HTMLButtonElement>(`[data-act="${btn.dataset.act}"][data-i="${j}"]`);
-    (next && !next.disabled ? next : list.querySelector<HTMLButtonElement>(`[data-act="remove"][data-i="${j}"]`)!).focus();
   }, { signal });
+
+  // Long-press a workout and drag it into place (user requirement; replaced the ↑/↓ buttons).
+  longPressReorder(list, {
+    signal,
+    items: () => [...list.querySelectorAll<HTMLElement>(":scope > li")],
+    onDrop(from, to) {
+      if (from === to) return;
+      ids.splice(to, 0, ...ids.splice(from, 1));
+      render();
+    },
+  });
 
   // ----- Workout picker -----
   function renderPicker() {

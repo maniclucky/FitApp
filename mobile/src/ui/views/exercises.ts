@@ -8,7 +8,7 @@ import {
 } from "../../logic/exercises";
 import { exerciseHistory } from "../../logic/history";
 import { MUSCLE_ROLES, NOTE_MAX_LENGTH, TRACKING_MODES } from "../../logic/text";
-import { type Ctx, flash, navigate, refresh, route, stash, takeStash } from "../app";
+import { type Ctx, currentPath, flash, navigate, refresh, returnTo, route, stash, takeStash } from "../app";
 import { exerciseFilter, filterControls, type FilterState } from "../exerciseFilter";
 import { historyList } from "./history";
 
@@ -113,7 +113,19 @@ type FormStash = { errors: string[]; form: ExerciseForm };
 // Set by "Save & add another" so the fresh form opens with the name field focused.
 let focusNameOnMount = false;
 
+// A new exercise opened with ?next= (e.g. from the workout builder's picker) returns there
+// instead of the list. The ids saved on the way, chained ones included, are kept per return
+// target for that screen to pick up.
+const createdFor = new Map<string, number[]>();
+export function takeCreatedExercises(target: string): number[] {
+  const ids = createdFor.get(target) ?? [];
+  createdFor.delete(target);
+  return ids;
+}
+
 async function exerciseForm(ctx: Ctx, exercise: Exercise | null) {
+  const nextParam = ctx.query.get("next");
+  const next = !exercise && nextParam?.startsWith("#/") ? nextParam : null;
   const stashed = takeStash<FormStash>();
   const form: ExerciseForm = stashed?.form ?? (exercise
     ? { name: exercise.name, tracking: exercise.modes, primary: exercise.primary, ancillary: exercise.ancillary, note: exercise.note ?? "" }
@@ -148,7 +160,7 @@ async function exerciseForm(ctx: Ctx, exercise: Exercise | null) {
       <header class="page-header">
         ${exercise
           ? html`<a class="back" href="#/exercises/${exercise.id}" aria-label="Back to ${exercise.name}">&larr;</a>`
-          : html`<a class="back" href="#/exercises" aria-label="Back to exercises">&larr;</a>`}
+          : html`<a class="back" href=${next ?? "#/exercises"} aria-label="Back">&larr;</a>`}
         <h1>${exercise ? "Edit exercise" : "New exercise"}</h1>
       </header>
       ${errors.length ? html`<div class="errors" role="alert"><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ""}
@@ -197,11 +209,13 @@ async function exerciseForm(ctx: Ctx, exercise: Exercise | null) {
         const result = await saveExercise(ctx.db, exercise?.id ?? null, input);
         if (result.ok) {
           flash(`Saved “${result.name}”.`);
-          // An edit returns to the exercise page; a new exercise goes back to the list, or to a
-          // blank form to add another.
+          // An edit returns to the exercise page; a new exercise goes back to the list (or the
+          // ?next= screen), or to a blank form to add another.
           const another = (e as SubmitEvent).submitter?.hasAttribute("data-another") ?? false;
           focusNameOnMount = another;
-          navigate(exercise ? `#/exercises/${exercise.id}` : another ? "#/exercises/new" : "#/exercises");
+          if (next) createdFor.set(next, [...(createdFor.get(next) ?? []), result.id]);
+          if (another) navigate(`#${currentPath()}`);
+          else returnTo(exercise ? `#/exercises/${exercise.id}` : next ?? "#/exercises");
         } else {
           stash({ errors: result.errors, form: result.form } satisfies FormStash);
           await refresh();
@@ -212,8 +226,9 @@ async function exerciseForm(ctx: Ctx, exercise: Exercise | null) {
   };
 }
 
-// A muscle group can be primary OR ancillary, not both: selecting it in one list disables it
-// in the other. Custom groups typed in either list are added to both. (static/exercise_form.js)
+// A muscle group can be primary OR ancillary, not both: selecting it in one list deselects it
+// in the other and greys it out there (still tappable, to switch it back). Custom groups typed in
+// either list are added to both. (Based on static/exercise_form.js, which disabled the twin.)
 function mountMuscleChips(root: HTMLElement, signal: AbortSignal) {
   const lists = {
     primary: root.querySelector<HTMLElement>('.chips[data-role="primary"]')!,
@@ -224,14 +239,23 @@ function mountMuscleChips(root: HTMLElement, signal: AbortSignal) {
   const findChip = (role: Role, name: string) =>
     [...lists[role].querySelectorAll("input")].find((i) => i.value.toLowerCase() === name.toLowerCase());
 
+  // A chip whose twin is selected is shown greyed out ("taken") but stays tappable.
   function sync() {
     for (const role of ["primary", "ancillary"] as Role[]) {
       for (const input of lists[role].querySelectorAll("input")) {
-        const twin = findChip(other[role], input.value);
-        input.disabled = Boolean(twin?.checked);
-        input.closest<HTMLElement>(".chip")!.title = input.disabled ? `Already selected as ${other[role]}` : "";
+        const taken = Boolean(findChip(other[role], input.value)?.checked);
+        const chip = input.closest<HTMLElement>(".chip")!;
+        chip.classList.toggle("taken", taken);
+        chip.title = taken ? `Selected as ${other[role]}; tap to make it ${role}` : "";
       }
     }
+  }
+
+  // Selecting a muscle in one list deselects it in the other.
+  function select(role: Role, input: HTMLInputElement) {
+    input.checked = true;
+    const twin = findChip(other[role], input.value);
+    if (twin) twin.checked = false;
   }
 
   function makeChip(role: Role, name: string) {
@@ -257,15 +281,18 @@ function mountMuscleChips(root: HTMLElement, signal: AbortSignal) {
     const name = normalize(field.value);
     if (!name) return;
     for (const r of ["primary", "ancillary"] as Role[]) if (!findChip(r, name)) makeChip(r, name);
-    const input = findChip(role, name)!;
-    if (!input.disabled) input.checked = true;
+    select(role, findChip(role, name)!);
     field.value = "";
     sync();
     field.focus();
   }
 
   root.addEventListener("change", (e) => {
-    if ((e.target as Element).matches(".chips[data-role] input")) sync();
+    const input = e.target as HTMLInputElement;
+    const role = input.closest<HTMLElement>(".chips[data-role]")?.dataset.role as Role | undefined;
+    if (!role) return;
+    if (input.checked) select(role, input);
+    sync();
   }, { signal });
   for (const role of ["primary", "ancillary"] as Role[]) {
     root.querySelector(`[data-add-button="${role}"]`)!.addEventListener("click", () => addCustom(role), { signal });

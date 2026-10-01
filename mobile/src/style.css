@@ -153,6 +153,8 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 }
 .chip input:focus-visible + span { outline: 2px solid var(--text); outline-offset: 2px; }
 .chip input:disabled + span { opacity: 0.3; cursor: not-allowed; text-decoration: line-through; }
+/* Selected in the other muscle list; tapping it moves the muscle here. */
+.chip.taken span { opacity: 0.35; text-decoration: line-through; }
 
 .add-tag { display: flex; gap: 8px; margin-top: 10px; }
 .add-tag input { flex: 1; min-width: 0; }
@@ -449,8 +451,8 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 }
 .sheet[open] { display: flex; }
 .sheet::backdrop { background: rgb(0 0 0 / 0.6); }
-.sheet-head { display: flex; justify-content: space-between; align-items: center; }
-.sheet-head h2 { margin: 0; }
+.sheet-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.sheet-head h2 { margin: 0; flex: 1; }
 .picker-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
 .picker-list > li > button, .picker-list .pick-toggle {
   width: 100%;
@@ -477,6 +479,11 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .card-wrap { position: relative; }
 .card-link h2 { padding-right: 48px; min-height: 28px; }
 .card-delete { position: absolute; top: 10px; right: 10px; z-index: 2; }
+.card-copy {
+  position: absolute; top: 10px; right: 58px; z-index: 2;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.card-wrap:has(.card-copy) h2 { padding-right: 96px; }
 /* A card whose title link stretches over the whole card, so it can hold other links too. */
 .card-stretch { position: relative; }
 .card-stretch h2 { padding-right: 48px; min-height: 28px; }
@@ -750,17 +757,25 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .reorder-hint { text-align: center; font-size: 0.8rem; margin: 0 0 4px; }
 .log-head, .log-labels, .set-num, .log-block .superset-tag { -webkit-user-select: none; user-select: none; }
 .log-card { -webkit-touch-callout: none; }
-.log-list [data-block] { transition: transform 0.16s ease-out; }
-.log-list.no-anim [data-block] { transition: none; }
-.log-list [data-block].dragging { position: relative; z-index: 5; transition: none; }
-.log-list [data-block].dragging.settling { transition: transform 0.16s ease-out; }
-.log-list [data-block].dragging .log-card {
+/* ui/dragReorder.ts (day view and routine editor) */
+.reorder-list > * { transition: transform 0.16s ease-out; }
+.reorder-list.no-anim > * { transition: none; }
+.reorder-list > .dragging { position: relative; z-index: 5; transition: none; }
+.reorder-list > .dragging.settling { transition: transform 0.16s ease-out; }
+.reorder-list.reordering { -webkit-user-select: none; user-select: none; }
+.log-list [data-block].dragging .log-card, .routine-item.dragging {
   border-color: var(--accent);
   box-shadow: 0 14px 32px rgb(0 0 0 / 0.55);
 }
-.log-list.reordering { -webkit-user-select: none; user-select: none; }
+.routine-item { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+/* While dragging, every card shrinks to its name. */
+.log-list.collapsed .log-card > :not(.log-head),
+.log-list.collapsed .log-head-actions,
+.log-list.collapsed .log-source { display: none; }
+.log-list.collapsed .log-head { margin: 0; }
+.log-list.collapsed .log-head h2 { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
-  .log-list [data-block], .log-list [data-block].dragging.settling { transition: none; }
+  .reorder-list > *, .reorder-list > .dragging.settling { transition: none; }
 }
 
 /* Exercise search + muscle filter */
@@ -865,6 +880,8 @@ textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .log-notes { margin: -2px 0 10px; }
 .log-actions .notes-btn { margin-left: auto; }
+.superset-btn { display: inline-flex; align-items: center; gap: 2px; padding: 0 10px; }
+.superset-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .history-day .note { margin: 2px 0 6px; }
 .notes-sheet .form { gap: 14px; }
 

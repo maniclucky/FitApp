@@ -5,7 +5,7 @@ import { ConflictError, NotFoundError } from "./errors";
 import { type Exercise, listExercises } from "./exercises";
 import { getRoutine, routineNextIndex } from "./routines";
 import { cleanNote, parseIsoDate, parseLogValue, pyTruthy, repTargetLabel, ValidationError } from "./text";
-import { getWorkout, groupBlocks, type Workout } from "./workouts";
+import { getWorkout, groupBlocks, type Item, type Workout } from "./workouts";
 
 export interface LogSet {
   id: number;
@@ -106,6 +106,18 @@ export function restAfterSets(blocks: LogEntry[][]): Set<number> {
 
 export const dayBlocks = (entries: LogEntry[]) => groupBlocks(entries);
 
+/**
+ * "Build workout from day" (user requirement): the day's exercises in order, with its supersets
+ * and set counts, and every target blank (no rep range, AMRAP, weight, time or distance).
+ */
+export function dayToWorkoutItems(entries: LogEntry[]): Item[] {
+  return entries.map((lx, i) => ({
+    exercise_id: lx.exercise.id,
+    superset_next: lx.superset_group !== null && entries[i + 1]?.superset_group === lx.superset_group,
+    sets: lx.sets.map(() => ({ min: null, max: null, amrap: false, weight: null, time: null, distance: null })),
+  }));
+}
+
 async function nextPositionAndGroup(db: Db, date: string): Promise<[number, number]> {
   const r = (await get(db, "SELECT MAX(position) AS p, MAX(superset_group) AS g FROM log_exercise WHERE date = ?", [date]))!;
   return [(r.p ?? 0) + 1, r.g ?? 0];
@@ -200,6 +212,41 @@ export async function reorderDay(db: Db, date: string, ids: unknown): Promise<vo
     // Park on negative positions first so the (date, position) unique key never collides.
     for (const [n, i] of (ids as number[]).entries()) await db.run("UPDATE log_exercise SET position = ? WHERE id = ?", [-(n + 1), i]);
     for (const [n, i] of (ids as number[]).entries()) await db.run("UPDATE log_exercise SET position = ? WHERE id = ?", [n + 1, i]);
+  });
+}
+
+/**
+ * The day view's superset button (user requirement): link an exercise with the one below it into
+ * a superset (joining either one's existing superset), or unlink them, which splits the superset
+ * there. A superset left with one exercise stops being one.
+ */
+export async function setSupersetWithNext(db: Db, entryId: number, link: boolean): Promise<void> {
+  const entry = await get(db, "SELECT date FROM log_exercise WHERE id = ?", [entryId]);
+  if (!entry) throw new NotFoundError("That exercise is no longer on this day.");
+  const rows = await db.all("SELECT id, superset_group FROM log_exercise WHERE date = ? ORDER BY position", [entry.date]);
+  const i = rows.findIndex((r) => r.id === entryId);
+  if (i === rows.length - 1) throw new ValidationError("There’s no exercise below to superset with.");
+  const groups: (number | null)[] = rows.map((r) => r.superset_group);
+  const fresh = Math.max(0, ...groups.map((g) => g ?? 0)) + 1;
+  const linked = groups[i] !== null && groups[i] === groups[i + 1];
+  if (link === linked) return;
+  if (link) {
+    const keep = groups[i] ?? groups[i + 1] ?? fresh;
+    const merged = [groups[i], groups[i + 1]].filter((g) => g !== null && g !== keep);
+    for (let k = 0; k < groups.length; k++) {
+      if (k === i || k === i + 1 || (groups[k] !== null && merged.includes(groups[k]))) groups[k] = keep;
+    }
+  } else {
+    const split = groups[i];
+    for (let k = i + 1; k < groups.length && groups[k] === split; k++) groups[k] = fresh;
+  }
+  const size = new Map<number, number>();
+  for (const g of groups) if (g !== null) size.set(g, (size.get(g) ?? 0) + 1);
+  await db.transaction(async () => {
+    for (const [k, r] of rows.entries()) {
+      const g = groups[k] !== null && size.get(groups[k]!)! > 1 ? groups[k] : null;
+      if (g !== r.superset_group) await db.run("UPDATE log_exercise SET superset_group = ? WHERE id = ?", [g, r.id]);
+    }
   });
 }
 

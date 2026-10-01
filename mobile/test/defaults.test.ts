@@ -14,8 +14,8 @@ describe("default exercises", () => {
     await seedDefaultExercises(db);
 
     const exercises = await listExercises(db);
-    expect(DEFAULT_EXERCISES).toHaveLength(86);
-    expect(exercises).toHaveLength(86);
+    expect(DEFAULT_EXERCISES).toHaveLength(91);
+    expect(exercises).toHaveLength(91);
     // A misspelled muscle would have been created as a custom group.
     expect((await db.all("SELECT name FROM muscle_group")).map((r) => r.name).sort()).toEqual([...DEFAULT_MUSCLE_GROUPS].sort());
 

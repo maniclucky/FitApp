@@ -1,14 +1,17 @@
 // Workouts: the list and the workout builder. Ported from templates/workouts.html,
 // workout_builder.html and static/workout_builder.js.
 import { html, nothing } from "lit-html";
+import { dayEntries, dayToWorkoutItems } from "../../logic/day";
 import { exercisePickerData, type PickerOption } from "../../logic/exercises";
 import {
   deleteWorkout, getWorkout, groupBlocks, type Item, listWorkouts, saveWorkout, slotSummary, type Workout, workoutDeleteBlocker,
   workoutToItems,
 } from "../../logic/workouts";
-import { type Ctx, flash, navigate, refresh, route, stash, takeStash } from "../app";
+import { type Ctx, currentPath, flash, href, navigate, refresh, returnTo, route, stash, takeStash } from "../app";
+import { cardCopyButton, copyHref, copyName } from "../copy";
 import { exerciseFilter, filterControls } from "../exerciseFilter";
 import { formatTime, parseTime } from "../time";
+import { takeCreatedExercises } from "./exercises";
 
 const DELETE_DETAIL = "This permanently removes the workout plan. Days you’ve already logged keep their sets.";
 
@@ -48,6 +51,7 @@ route(/^\/workouts$/, async (ctx) => {
           ${workouts.map((w) => html`
             <li class="card-wrap">
               <a class="card card-link" href="#/workouts/${w.id}"><h2>${w.name}</h2>${workoutSummaryList(w)}</a>
+              ${cardCopyButton("workouts", w.id, w.name)}
               <button type="button" class="icon-btn danger card-delete" aria-label="Delete ${w.name}"
                       data-confirm-delete="workout:${w.id}" data-name=${w.name} data-detail=${DELETE_DETAIL}
                       data-blocked=${blocked.get(w.id) ?? nothing}>&times;</button>
@@ -60,6 +64,10 @@ route(/^\/workouts\/new$/, (ctx) => builder(ctx, null));
 route(/^\/workouts\/(\d+)$/, async (ctx) => builder(ctx, await getWorkout(ctx.db, Number(ctx.params[0]))));
 
 type BuilderStash = { errors: string[]; name: string; items: Item[] };
+// Unsaved builder state kept while "+ New exercise" visits the exercise form, keyed by the
+// builder's own route; restored (with the new exercises added) when it comes back.
+type Draft = { name: string; items: EditItem[] };
+const drafts = new Map<string, Draft>();
 
 /** Where Back and Save go: ?next= (e.g. from a routine card) or the workouts list. Same-app routes only. */
 function backTarget(ctx: Ctx) {
@@ -69,9 +77,15 @@ function backTarget(ctx: Ctx) {
 
 async function builder(ctx: Ctx, workout: Workout | null) {
   const back = backTarget(ctx);
+  const here = `#${currentPath()}`;
+  const newExercise = href("/exercises/new", { next: here });
   const stashed = takeStash<BuilderStash>();
-  const name = stashed?.name ?? workout?.name ?? "";
-  const items = stashed?.items ?? (workout ? workoutToItems(workout) : []);
+  const copyId = Number(ctx.query.get("copy"));
+  const source = workout ?? (copyId ? await getWorkout(ctx.db, copyId) : null);
+  const name = stashed?.name ?? (workout ? workout.name : source ? copyName(source.name) : "");
+  // ?day=<date>: "Build workout from day" — the day's exercises, blank targets, blank name.
+  const fromDay = !workout && !source && ctx.query.get("day");
+  const items = stashed?.items ?? (source ? workoutToItems(source) : fromDay ? dayToWorkoutItems(await dayEntries(ctx.db, fromDay)) : []);
   const errors = stashed?.errors ?? [];
   const { options, muscles } = await exercisePickerData(ctx.db);
   const blocked = workout ? await workoutDeleteBlocker(ctx.db, workout.id) : null;
@@ -84,6 +98,7 @@ async function builder(ctx: Ctx, workout: Workout | null) {
       <header class="page-header">
         <a class="back" href=${back} aria-label="Back">&larr;</a>
         <h1>${workout ? "Edit workout" : "New workout"}</h1>
+        ${workout ? html`<a class="button subtle" href=${copyHref("workouts", workout.id)}>Copy</a>` : ""}
       </header>
       ${errors.length ? html`<div class="errors" role="alert"><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ""}
       <form class="form" id="builder-form" novalidate>
@@ -106,20 +121,21 @@ async function builder(ctx: Ctx, workout: Workout | null) {
       <dialog class="sheet" id="picker" aria-labelledby="picker-title">
         <div class="sheet-head">
           <h2 id="picker-title">Add exercises</h2>
+          <a class="button subtle" href=${newExercise} data-leave>+ New</a>
           <button type="button" class="button" id="close-picker">Done</button>
         </div>
         ${options.length ? html`
           ${filterControls(muscles)}
           <ul class="picker-list" id="picker-list"></ul>
           <p class="empty small" id="picker-none" hidden>No matches.</p>` : html`
-          <p class="empty small">You haven't created any exercises yet. <a href="#/exercises/new">Create one first</a>.</p>`}
+          <p class="empty small">You haven't created any exercises yet. <a href=${newExercise} data-leave>Create one first</a>.</p>`}
       </dialog>`,
     mount(root: HTMLElement, signal: AbortSignal) {
-      mountBuilder(root, signal, options, items, async (rawName, finalItems) => {
+      mountBuilder(root, signal, options, items, here, async (rawName, finalItems) => {
         const result = await saveWorkout(ctx.db, workout?.id ?? null, rawName, finalItems);
         if (result.ok) {
           flash(`Saved “${result.name}”.`);
-          navigate(back);
+          returnTo(back);
         } else {
           stash({ errors: result.errors, name: result.name, items: result.items } satisfies BuilderStash);
           await refresh();
@@ -151,7 +167,7 @@ type EditSet = { min: number | null; max: number | null; amrap: boolean; weight:
 type EditItem = { exercise_id: number; superset_next: boolean; sets: EditSet[]; filled: Record<Field, boolean> };
 
 function mountBuilder(
-  root: HTMLElement, signal: AbortSignal, options: PickerOption[], initial: Item[],
+  root: HTMLElement, signal: AbortSignal, options: PickerOption[], initial: Item[], draftKey: string,
   onSave: (name: string, items: EditItem[]) => Promise<void>,
 ) {
   const byId = new Map(options.map((o) => [o.id, o]));
@@ -415,6 +431,11 @@ function mountBuilder(
   picker.addEventListener("click", (e) => {
     if (e.target === picker) picker.close(); // tap on backdrop
   }, { signal });
+  // "+ New" leaves for the exercise form: keep the unsaved workout for when it comes back.
+  picker.addEventListener("click", (e) => {
+    if (!(e.target as Element).closest("[data-leave]")) return;
+    drafts.set(draftKey, { name: root.querySelector<HTMLInputElement>("#name")!.value, items: structuredClone(items) });
+  }, { signal });
   pickerList?.addEventListener("click", (e) => {
     const btn = (e.target as Element).closest<HTMLButtonElement>("button[data-id]");
     if (!btn) return;
@@ -429,5 +450,13 @@ function mountBuilder(
     void onSave(root.querySelector<HTMLInputElement>("#name")!.value, items);
   }, { signal });
 
+  // Back from "+ New": restore the unsaved workout, then add the exercises made there.
+  const draft = drafts.get(draftKey);
+  drafts.delete(draftKey);
+  if (draft) {
+    root.querySelector<HTMLInputElement>("#name")!.value = draft.name;
+    items.splice(0, items.length, ...draft.items.filter((it) => byId.has(it.exercise_id)));
+  }
+  for (const id of takeCreatedExercises(draftKey)) if (byId.has(id)) addExercise(id);
   render();
 }

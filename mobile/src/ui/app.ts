@@ -48,6 +48,23 @@ export function navigate(to: string) {
 export const refresh = () => show(true);
 export const back = () => history.back();
 
+// Each history entry remembers the route it was opened from (history.state.from), so leaving a
+// form with returnTo() steps back to that screen instead of stacking a second copy of it, and the
+// phone's back button then goes where it should (e.g. exercise page → list, not → edit form).
+let lastHash = "";
+let replacedFrom: string | null = null;
+
+/** Go to `target`: back through history if this screen was opened from it, else replace this screen. */
+export function returnTo(target: string) {
+  const from = (history.state as { from?: string } | null)?.from;
+  if (from === target) history.back();
+  else if (location.hash === target) void show(false);
+  else {
+    replacedFrom = from ?? "";
+    location.replace(target);
+  }
+}
+
 // ---------- form state across a re-render ----------
 // A rejected form save stashes its errors and cleaned-up values, then refreshes; the view
 // takes them back out when it renders. Keyed by path, so they never leak to another screen.
@@ -76,6 +93,11 @@ let deleteActions = new Map<string, () => Promise<void>>();
 const root = () => document.getElementById("app")!;
 
 async function show(keepScroll: boolean) {
+  if ((history.state as { from?: string } | null)?.from === undefined) {
+    history.replaceState({ from: replacedFrom ?? lastHash }, "");
+  }
+  replacedFrom = null;
+  lastHash = location.hash;
   const [path, queryString] = currentPath().split("?");
   const scroll = keepScroll ? scrollY : 0;
   controller?.abort();
@@ -204,6 +226,13 @@ function wireNav(signal: AbortSignal) {
 export function start(database: Db) {
   db = database;
   window.addEventListener("hashchange", () => void show(false));
+  // A screen's ← arrow returns to its parent screen (see returnTo).
+  document.addEventListener("click", (e) => {
+    const link = (e.target as Element).closest<HTMLAnchorElement>("a.back[href^='#/']");
+    if (!link || e.defaultPrevented) return;
+    e.preventDefault();
+    returnTo(link.getAttribute("href")!);
+  });
   if (!location.hash) history.replaceState(null, "", "#/day");
   void show(false);
 }

@@ -187,6 +187,7 @@ export async function exercisePickerData(db: Db): Promise<{ options: PickerOptio
 const PLAIN = "";
 const DEFAULT_EXERCISE_ROWS: [string, string[], string[], string[]][] = [
   ["Bench Press", ["Barbell", "Dumbbell", "Machine", "Cable"], ["Chest"], ["Triceps", "Front Deltoid"]],
+  ["Incline Bench Press", ["Barbell", "Dumbbell", "Machine", "Cable"], ["Chest"], ["Triceps", "Front Deltoid"]],
   ["Flye", ["Dumbbell", "Machine", "Cable"], ["Chest"], []],
   ["Hammer Press", ["Dumbbell", "Machine", "Cable"], ["Chest"], ["Triceps", "Front Deltoid"]],
   ["Shoulder Press", ["Barbell", "Dumbbell", "Machine", "Cable"], ["Front Deltoid"], ["Side Deltoid"]],
@@ -200,7 +201,7 @@ const DEFAULT_EXERCISE_ROWS: [string, string[], string[], string[]][] = [
   ["Skullcrusher", ["Barbell", "Dumbbell", "EZ Bar"], ["Triceps"], []],
   ["Overhead Extension", ["Dumbbell", "Cable"], ["Triceps"], []],
   ["Dips", [PLAIN], ["Triceps"], ["Chest"]],
-  ["Curl", ["Barbell", "Dumbbell", "Machine", "Cable", "EZ Bar"], ["Biceps"], ["Forearms"]],
+  ["Bicep Curl", ["Barbell", "Dumbbell", "Machine", "Cable", "EZ Bar"], ["Biceps"], ["Forearms"]],
   ["Hammer Curl", ["Dumbbell", "Machine", "Cable"], ["Biceps"], ["Forearms"]],
   ["Row", ["Barbell", "Dumbbell", "Machine", "Cable"], ["Upper Back"], ["Biceps"]],
   ["Pullup", [PLAIN], ["Lats"], ["Biceps"]],

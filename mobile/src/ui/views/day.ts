@@ -11,8 +11,9 @@ import {
   addDays, dayTitle, formatDuration, formatNumber, historyDate, NOTE_MAX_LENGTH, parseIsoDate, type TrackingMode,
 } from "../../logic/text";
 import { groupBlocks, listWorkouts } from "../../logic/workouts";
-import { type Ctx, flash, navigate, refresh, route } from "../app";
+import { type Ctx, flash, href, navigate, refresh, route } from "../app";
 import { exerciseFilter, filterControls } from "../exerciseFilter";
+import { longPressReorder } from "../dragReorder";
 import { formatTime, parseTime } from "../time";
 import { historyList } from "./history";
 import { tapHaptic } from "../native";
@@ -25,6 +26,9 @@ const FIELDS: Record<TrackingMode, { field: keyof LogSet; label: string; inputmo
   time: { field: "duration_seconds", label: "Time", inputmode: "numeric" },
   distance: { field: "distance", label: "mi", inputmode: "decimal" },
 };
+
+const linkIcon = html`<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor"
+  stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg>`;
 
 route(/^\/day$/, (ctx) => dayView(ctx, ctx.today));
 route(/^\/day\/([^/]+)$/, (ctx) => dayView(ctx, ctx.params[0]));
@@ -89,6 +93,17 @@ async function dayView(ctx: Ctx, date: string) {
       <button type="button" class="check" aria-pressed=${s.completed_at ? "true" : "false"} aria-label="Set ${n} completed">&#10003;</button>
     </div>`;
 
+  // Superset toggle (user requirement): links this exercise with the one below it. Every card
+  // but the day's last has one; it's pressed while the two are in the same superset.
+  const supersetButton = (lx: LogEntry) => {
+    const next = entries[entries.indexOf(lx) + 1];
+    if (!next) return "";
+    const linked = lx.superset_group !== null && lx.superset_group === next.superset_group;
+    return html`<button type="button" class="button subtle small superset-btn" data-superset=${lx.id} aria-pressed=${linked ? "true" : "false"}
+      aria-label=${linked ? `Unlink ${lx.exercise.name} from ${next.exercise.name}` : `Superset ${lx.exercise.name} with ${next.exercise.name}`}
+      title=${linked ? "Unlink from the exercise below" : "Superset with the exercise below"}>${linkIcon} &darr;</button>`;
+  };
+
   const card = (lx: LogEntry) => html`
     <section class="log-card" id="lx-${lx.id}" data-lx=${lx.id}>
       <div class="log-head">
@@ -117,6 +132,7 @@ async function dayView(ctx: Ctx, date: string) {
       <div class="log-actions">
         <button type="button" class="button subtle small" data-act="add-set" data-lx=${lx.id}>+ Set</button>
         <button type="button" class="button subtle small" data-act="remove-set" data-lx=${lx.id} ?disabled=${lx.sets.length === 1}>&minus; Set</button>
+        ${supersetButton(lx)}
         <button type="button" class="button subtle small notes-btn" data-notes=${lx.id} data-name=${lx.exercise.name}
                 data-exercise-note=${lx.exercise.note ?? ""} data-session-note=${lx.note ?? ""}>Notes</button>
       </div>
@@ -152,6 +168,7 @@ async function dayView(ctx: Ctx, date: string) {
         <div class="day-actions">
           <button type="button" class="button block" id="open-add">+ Add</button>
           ${blocks.length ? html`
+            <a class="button subtle block" href=${href("/workouts/new", { day: date, next: `#/day/${date}` })}>Build workout from day</a>
             <button type="button" class="button danger small clear-day" data-confirm-delete="clear-day"
                     data-title="Clear ${isToday ? "today" : "this day"}?"
                     data-detail="Removes all ${nExercises} exercise${nExercises === 1 ? "" : "s"} and their sets, including anything you’ve logged. This can’t be undone.">Clear day</button>` : ""}
@@ -349,6 +366,60 @@ function mountDay(
     }
   });
 
+  // ---------- autofill (user requirement) ----------
+  // The first weight or reps value entered for an exercise is copied, as you type, into that
+  // column on its later sets that are empty and not checked off, and saved with it. After that
+  // the column counts as filled and every set is edited on its own. A column that already has a
+  // value anywhere (e.g. after a reload) is filled from the start.
+  const AUTOFILL = ["weight", "reps"];
+  const filled = new Set<string>(); // `${lx}:${field}`
+  for (const input of dayEl.querySelectorAll<HTMLInputElement>("input[data-field]")) {
+    if (input.value) filled.add(`${input.closest<HTMLElement>("[data-lx]")!.dataset.lx}:${input.dataset.field}`);
+  }
+  let mirror: { source: HTMLInputElement; targets: HTMLInputElement[] } | null = null;
+  const fieldKey = (input: HTMLInputElement) => `${input.closest<HTMLElement>("[data-lx]")!.dataset.lx}:${input.dataset.field}`;
+
+  on(dayEl, "input", (e: Event) => {
+    const input = (e.target as Element).closest<HTMLInputElement>("input[data-field]");
+    if (!input || !AUTOFILL.includes(input.dataset.field!) || filled.has(fieldKey(input))) return;
+    if (mirror?.source !== input) {
+      const rows = [...input.closest("[data-lx]")!.querySelectorAll<HTMLElement>("[data-set]")];
+      const later = rows.slice(rows.indexOf(input.closest<HTMLElement>("[data-set]")!) + 1);
+      mirror = {
+        source: input,
+        targets: later.filter((r) => !r.classList.contains("done"))
+          .map((r) => r.querySelector<HTMLInputElement>(`input[data-field="${input.dataset.field}"]`)!)
+          .filter((t) => !t.value),
+      };
+    }
+    for (const t of mirror.targets) t.value = input.value;
+  });
+
+  on(dayEl, "change", async (e: Event) => {
+    const input = (e.target as Element).closest<HTMLInputElement>("input[data-field]");
+    if (!input || mirror?.source !== input) return;
+    const { targets } = mirror;
+    mirror = null;
+    let value: number | null;
+    try {
+      value = readField(input);
+    } catch {
+      for (const t of targets) t.value = ""; // the source shows the error; don't spread a bad value
+      return;
+    }
+    if (value == null) return;
+    filled.add(fieldKey(input));
+    for (const t of targets) {
+      try {
+        const data = await day.updateSet(db, Number(t.closest<HTMLElement>("[data-set]")!.dataset.set), { [t.dataset.field!]: value });
+        showField(t, (data as any)[t.dataset.field!]);
+      } catch (err) {
+        t.classList.add("invalid");
+        toast((err as Error).message);
+      }
+    }
+  });
+
   on(dayEl, "click", async (e: Event) => {
     const check = (e.target as Element).closest<HTMLButtonElement>(".check");
     if (!check) return;
@@ -370,6 +441,20 @@ function mountDay(
       toast((err as Error).message);
     } finally {
       check.disabled = false;
+    }
+  });
+
+  // ---------- superset with the exercise below ----------
+  on(dayEl, "click", async (e: Event) => {
+    const btn = (e.target as Element).closest<HTMLButtonElement>("[data-superset]");
+    if (!btn) return;
+    btn.disabled = true;
+    try {
+      await day.setSupersetWithNext(db, Number(btn.dataset.superset), btn.getAttribute("aria-pressed") !== "true");
+      await refresh();
+    } catch (err) {
+      toast((err as Error).message);
+      btn.disabled = false;
     }
   });
 
@@ -596,91 +681,11 @@ function mountDay(
     }
   });
 
-  // ---------- long-press to reorder ----------
-  // Press and hold an exercise (not on an input or button) to lift its block; a superset moves
-  // as one block. Other blocks slide out of the way; dropping saves the new order.
-  const LONG_PRESS_MS = 400;
-  const MOVE_TOLERANCE = 8; // px of finger drift allowed while waiting for the long press
-  const EDGE = 80; // px from the top/bottom of the viewport that auto-scrolls
+  // ---------- long-press to reorder (ui/dragReorder.ts) ----------
+  // A superset moves as one block. While dragging, every card collapses to its name (user
+  // requirement) so blocks are short and easy to move; they expand again on drop.
   const logList = root.querySelector<HTMLElement>("#log-list");
-  type Drag = {
-    block: HTMLElement; blocks: HTMLElement[]; tops: number[]; heights: number[]; gap: number;
-    index: number; target: number; pageY0: number; clientY: number; raf: number;
-  };
-  let press: { block: HTMLElement; x: number; y: number; timer: number } | null = null;
-  let drag: Drag | null = null;
   let touch: { x: number; y: number; t: number } | null = null;
-
-  const cancelPress = () => {
-    if (press) clearTimeout(press.timer);
-    press = null;
-  };
-  function startDrag() {
-    const { block, y } = press!;
-    press = null;
-    const blocks = [...logList!.querySelectorAll<HTMLElement>(":scope > [data-block]")];
-    const tops = blocks.map((b) => b.getBoundingClientRect().top + scrollY);
-    const heights = blocks.map((b) => b.offsetHeight);
-    const gap = parseFloat(getComputedStyle(logList!).rowGap) || 0;
-    const index = blocks.indexOf(block);
-    drag = { block, blocks, tops, heights, gap, index, target: index, pageY0: y + scrollY, clientY: y, raf: 0 };
-    touch = null; // cancel any day swipe in progress
-    dayEl.style.transform = "";
-    (document.activeElement as HTMLElement | null)?.blur?.();
-    logList!.classList.add("reordering");
-    block.classList.add("dragging");
-    navigator.vibrate?.(12);
-    drag.raf = requestAnimationFrame(autoScroll);
-  }
-  function moveDrag() {
-    const d = drag!;
-    const dy = d.clientY + scrollY - d.pageY0;
-    d.block.style.transform = `translateY(${dy}px) scale(1.02)`;
-    const center = d.tops[d.index] + d.heights[d.index] / 2 + dy;
-    let target = d.index;
-    for (let j = 0; j < d.blocks.length; j++) {
-      const mid = d.tops[j] + d.heights[j] / 2;
-      if (j > d.index && center > mid) target = j;
-      if (j < d.index && center < mid && target >= d.index) target = j;
-    }
-    d.target = target;
-    const shift = d.heights[d.index] + d.gap;
-    d.blocks.forEach((b, j) => {
-      if (j === d.index) return;
-      const offset = j > d.index && j <= target ? -shift : j < d.index && j >= target ? shift : 0;
-      b.style.transform = offset ? `translateY(${offset}px)` : "";
-    });
-  }
-  function autoScroll() {
-    if (!drag) return;
-    const y = drag.clientY;
-    const bottomEdge = innerHeight - EDGE - 72; // leave room for the timer bar and tab bar
-    const speed = y < EDGE ? -(EDGE - y) / 5 : y > bottomEdge ? (y - bottomEdge) / 5 : 0;
-    if (speed) {
-      scrollBy(0, speed);
-      moveDrag();
-    }
-    drag.raf = requestAnimationFrame(autoScroll);
-  }
-  function endDrag() {
-    const { block, blocks, tops, heights, index, target, raf } = drag!;
-    cancelAnimationFrame(raf);
-    drag = null;
-    // Glide the lifted block into its slot, then move it in the DOM and drop all transforms.
-    const finalTop = target > index ? tops[target] + heights[target] - heights[index] : tops[target];
-    block.classList.add("settling");
-    block.style.transform = `translateY(${finalTop - tops[index]}px)`;
-    setTimeout(() => {
-      logList!.classList.add("no-anim");
-      block.classList.remove("dragging", "settling");
-      for (const b of blocks) b.style.transform = "";
-      if (target > index) blocks[target].after(block);
-      else if (target < index) blocks[target].before(block);
-      void logList!.offsetHeight; // apply the reset before re-enabling transitions
-      logList!.classList.remove("no-anim", "reordering");
-      if (target !== index) void saveOrder();
-    }, 160);
-  }
   async function saveOrder() {
     const ids = [...logList!.querySelectorAll<HTMLElement>(".log-card")].map((c) => Number(c.dataset.lx));
     try {
@@ -690,40 +695,26 @@ function mountDay(
       setTimeout(() => void refresh(), 1500);
     }
   }
-  if (logList) {
-    on(logList, "pointerdown", (e: PointerEvent) => {
-      if (drag || !e.isPrimary || e.button !== 0 || (e.target as Element).closest("input, button, a, label")) return;
-      const block = (e.target as Element).closest<HTMLElement>("[data-block]");
-      if (!block) return;
-      cancelPress();
-      press = { block, x: e.clientX, y: e.clientY, timer: window.setTimeout(startDrag, LONG_PRESS_MS) };
-    });
-    on(document, "pointermove", (e: PointerEvent) => {
-      if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > MOVE_TOLERANCE) cancelPress();
-      if (drag && e.isPrimary) {
-        drag.clientY = e.clientY;
-        moveDrag();
-      }
-    });
-    const release = () => {
-      cancelPress();
-      if (drag) endDrag();
-    };
-    on(document, "pointerup", release);
-    on(document, "pointercancel", release);
-    // While a block is lifted, the finger drags it instead of scrolling the page.
-    on(document, "touchmove", (e: TouchEvent) => {
-      if (drag && e.cancelable) e.preventDefault();
-    }, { passive: false });
-    // Long-pressing shouldn't pop the phone's context menu.
-    on(logList, "contextmenu", (e: Event) => {
-      if (press || drag) e.preventDefault();
-    });
-    signal.addEventListener("abort", () => {
-      cancelPress();
-      if (drag) cancelAnimationFrame(drag.raf);
-    });
-  }
+  const reorder = logList ? longPressReorder(logList, {
+    signal,
+    items: () => [...logList.querySelectorAll<HTMLElement>(":scope > [data-block]")],
+    bottomInset: 72, // the rest timer bar and tab bar
+    onLift() {
+      touch = null; // cancel any day swipe in progress
+      dayEl.style.transform = "";
+      logList.classList.add("collapsed");
+    },
+    onDrop(from, to, block) {
+      const blocks = [...logList.querySelectorAll<HTMLElement>(":scope > [data-block]")];
+      if (to > from) blocks[to].after(block);
+      else if (to < from) blocks[to].before(block);
+      // Expand the cards again, keeping the dropped block where it is on screen.
+      const before = block.getBoundingClientRect().top;
+      logList.classList.remove("collapsed");
+      scrollBy(0, block.getBoundingClientRect().top - before);
+      if (to !== from) void saveOrder();
+    },
+  }) : null;
 
   // ---------- calendar ----------
   const calSheet = root.querySelector<HTMLDialogElement>("#calendar-sheet")!;
@@ -801,7 +792,7 @@ function mountDay(
     touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
   }, { passive: true });
   on(dayEl, "touchmove", (e: TouchEvent) => {
-    if (!touch || drag) return;
+    if (!touch || reorder?.isDragging()) return;
     const dx = e.touches[0].clientX - touch.x;
     const dy = e.touches[0].clientY - touch.y;
     if (Math.abs(dx) > Math.abs(dy)) dayEl.style.transform = `translateX(${dx * 0.4}px)`;
