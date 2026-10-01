@@ -64,10 +64,11 @@ describe("backup", () => {
     const flask = JSON.parse(readFileSync(FIXTURE, "utf8"));
     const db = await freshDb();
     const counts = await importBackup(db, flask);
-    for (const t of TABLES) expect(counts[t], t).toBe(flask.tables[t].length);
+    // Flask exports have no progress_target (schema 2); it imports as empty.
+    for (const t of TABLES) expect(counts[t], t).toBe(flask.tables[t]?.length ?? 0);
     expect(await db.all("PRAGMA foreign_key_check")).toEqual([]);
     const again = await exportBackup(db);
-    for (const t of TABLES) expect(again.tables[t], t).toEqual(flask.tables[t]);
+    for (const t of TABLES) expect(again.tables[t], t).toEqual(flask.tables[t] ?? []);
     // A second import over existing data replaces it rather than duplicating.
     await importBackup(db, again);
     expect((await db.all("SELECT COUNT(*) AS n FROM log_set"))[0].n).toBe(flask.tables.log_set.length);

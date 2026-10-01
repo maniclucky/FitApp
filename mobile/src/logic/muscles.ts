@@ -43,7 +43,7 @@ export async function syncMuscleGroups(db: Db): Promise<void> {
       const muscle = existing.get(name.toLowerCase());
       if (!muscle) continue;
       let inUse = false;
-      for (const table of ["exercise_muscle", "routine_muscle_target", "target_preset_value"]) {
+      for (const table of ["exercise_muscle", "routine_muscle_target", "target_preset_value", "progress_target"]) {
         if (await get(db, `SELECT 1 FROM ${table} WHERE muscle_group_id = ? LIMIT 1`, [muscle.id])) inUse = true;
       }
       if (!inUse) await db.run("DELETE FROM muscle_group WHERE id = ?", [muscle.id]);

@@ -196,5 +196,5 @@ it.skipIf(!ready)("replays the Flask scenario with identical results and final d
     expect(got, `step ${i}: ${step.op}`).toEqual(want);
   }
   const final = await dump(db);
-  for (const table of TABLES) expect(final[table], `final ${table}`).toEqual(expected.final[table]);
+  for (const table of TABLES) expect(final[table], `final ${table}`).toEqual(expected.final[table] ?? []);
 });

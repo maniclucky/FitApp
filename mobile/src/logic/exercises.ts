@@ -221,8 +221,11 @@ const DEFAULT_EXERCISE_ROWS: [string, string[], string[], string[]][] = [
   ["Deadlift", ["Barbell", "Dumbbell"], ["Hamstrings"], ["Glutes", "Lower Back"]],
   ["Romanian Deadlift", ["Barbell", "Dumbbell"], ["Hamstrings"], ["Glutes", "Lower Back"]],
   ["Hyperextension", [PLAIN], ["Hamstrings"], ["Glutes"]],
-  ["Leg Curl", [PLAIN], ["Hamstrings"], []],
+  ["Seated Leg Curl", [PLAIN], ["Hamstrings"], []],
+  ["Lying Leg Curl", [PLAIN], ["Hamstrings"], []],
   ["Calf Press", [PLAIN], ["Calves"], []],
+  ["Hip Adductor", ["Cable", PLAIN], ["Adductors"], []],
+  ["Hip Abductor", ["Cable", PLAIN], ["Abductors"], []],
 ];
 
 export const DEFAULT_EXERCISES = DEFAULT_EXERCISE_ROWS.flatMap(([base, equipment, primary, ancillary]) =>

@@ -1,7 +1,7 @@
 // Progress: daily volume and sets per muscle group over a date range. Ported from app.py.
 import type { Db } from "../db/types";
 import { orderedMuscleGroups } from "./muscles";
-import { addDays, daysBetween, monthBefore, MUSCLE_SET_WEIGHTS, type MuscleRole, parseIsoDate, round2 } from "./text";
+import { addDays, daysBetween, monthBefore, MUSCLE_SET_WEIGHTS, type MuscleRole, parseIsoDate, parseLogValue, round2 } from "./text";
 
 export const PROGRESS_MAX_DAYS = 366;
 
@@ -18,7 +18,7 @@ export function progressRange(start: string | null, end: string | null, today: s
 export interface ProgressData {
   nDays: number;
   days: { date: string; volume: number }[];
-  muscles: { name: string; total: number; per_week: number }[];
+  muscles: { id: number; name: string; total: number; per_week: number }[];
   totalVolume: number;
   trainingDays: number;
   completedSets: number;
@@ -58,7 +58,7 @@ export async function progressData(db: Db, start: string, end: string): Promise<
   }
   const muscles = (await orderedMuscleGroups(db)).map((mg) => {
     const total = muscleSets.get(mg.id) ?? 0;
-    return { name: mg.name, total, per_week: (total * 7) / nDays };
+    return { id: mg.id, name: mg.name, total, per_week: (total * 7) / nDays };
   });
   return {
     nDays, days, muscles,
@@ -71,4 +71,30 @@ export async function progressData(db: Db, start: string, end: string): Promise<
 /** The quick range buttons: [label, start] ending today. */
 export function rangePresets(today: string): [string, string][] {
   return [["Week", addDays(today, -6)], ["Month", monthBefore(today)], ["3 months", monthBefore(monthBefore(monthBefore(today)))]];
+}
+
+// ---------- Weekly targets (user, 2026-10-01) ----------
+// Weekly minimum sets per muscle group, compared with "per week" above. Like routine targets,
+// 0 means no minimum. Kept in progress_target, one row per muscle group that has a value.
+
+/** muscle_group_id -> weekly minimum. */
+export async function progressTargets(db: Db): Promise<Map<number, number>> {
+  return new Map((await db.all("SELECT muscle_group_id, sets FROM progress_target")).map((r) => [r.muscle_group_id, r.sets]));
+}
+
+/** Saves one muscle group's target from the text typed; blank removes it. Throws ValidationError. */
+export async function saveProgressTarget(db: Db, muscleId: number, muscleName: string, raw: string): Promise<number | null> {
+  const sets = parseLogValue(raw.trim(), `${muscleName} minimum`, { integer: false, maximum: 999 });
+  if (sets == null) await db.run("DELETE FROM progress_target WHERE muscle_group_id = ?", [muscleId]);
+  else await db.run("INSERT OR REPLACE INTO progress_target (muscle_group_id, sets) VALUES (?, ?)", [muscleId, sets]);
+  return sets;
+}
+
+/** Replaces every target (e.g. from a preset: muscle_group_id -> sets; groups it lacks are 0). */
+export async function replaceProgressTargets(db: Db, sets: Map<number, number>): Promise<void> {
+  const muscles = await orderedMuscleGroups(db);
+  await db.transaction(async () => {
+    await db.run("DELETE FROM progress_target");
+    for (const m of muscles) await db.run("INSERT INTO progress_target (muscle_group_id, sets) VALUES (?, ?)", [m.id, sets.get(m.id) ?? 0]);
+  });
 }

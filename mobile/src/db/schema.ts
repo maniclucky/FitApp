@@ -114,6 +114,13 @@ export const MIGRATIONS: string[] = [
     UNIQUE (log_exercise_id, position)
   );
   `,
+  // 2: weekly sets-per-muscle targets on the Progress page (user, 2026-10-01). Not in Flask.
+  `
+  CREATE TABLE progress_target (
+    muscle_group_id INTEGER PRIMARY KEY REFERENCES muscle_group (id),
+    sets FLOAT NOT NULL CHECK (sets >= 0)
+  );
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
@@ -136,6 +143,6 @@ export async function migrate(db: Db): Promise<number> {
 /** Tables in foreign-key order (parents first): the insert order for restoring a backup. */
 export const TABLES = [
   "muscle_group", "exercise", "exercise_muscle", "workout", "workout_exercise", "workout_set",
-  "routine", "routine_workout", "routine_muscle_target", "target_preset", "target_preset_value",
+  "routine", "routine_workout", "routine_muscle_target", "target_preset", "target_preset_value", "progress_target",
   "log_exercise", "log_set",
 ] as const;

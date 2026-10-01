@@ -946,17 +946,19 @@ textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .chart-tooltip span { font-size: 0.8rem; color: var(--muted); }
 .table-view { margin-top: 10px; font-size: 0.9rem; }
 .table-view summary { cursor: pointer; color: var(--muted); min-height: 36px; display: flex; align-items: center; }
-.table-view table, .muscle-sets { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.table-view th, .table-view td, .muscle-sets th, .muscle-sets td { padding: 6px 4px; border-bottom: 1px solid var(--surface-2); text-align: right; }
-.table-view th:first-child, .table-view td:first-child, .muscle-sets th:first-child { text-align: left; }
+.table-view table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.table-view th, .table-view td { padding: 6px 4px; border-bottom: 1px solid var(--surface-2); text-align: right; }
+.table-view th:first-child, .table-view td:first-child { text-align: left; }
 .table-view a { color: var(--text); }
-.muscle-sets thead th { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
-.muscle-sets tbody th { font-weight: 600; }
-.muscle-sets tr.none { color: var(--muted); }
-.muscle-sets tr.none th { font-weight: 400; }
 
 /* Backup screen (mobile app) */
 .backup-card { margin-bottom: 12px; }
 .backup-card h2 { margin-bottom: 4px; }
 .backup-card .hint { margin: 0 0 12px; }
 .file-button { cursor: pointer; }
+
+/* Progress: weekly targets */
+.section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.section-head h2 { margin: 0; }
+.save-preset { margin-top: 16px; }
+.save-preset label { display: block; font-weight: 600; margin-bottom: 6px; }

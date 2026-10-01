@@ -14,8 +14,8 @@ describe("default exercises", () => {
     await seedDefaultExercises(db);
 
     const exercises = await listExercises(db);
-    expect(DEFAULT_EXERCISES).toHaveLength(91);
-    expect(exercises).toHaveLength(91);
+    expect(DEFAULT_EXERCISES).toHaveLength(96);
+    expect(exercises).toHaveLength(96);
     // A misspelled muscle would have been created as a custom group.
     expect((await db.all("SELECT name FROM muscle_group")).map((r) => r.name).sort()).toEqual([...DEFAULT_MUSCLE_GROUPS].sort());
 
@@ -29,6 +29,8 @@ describe("default exercises", () => {
     expect(byName.get("Smith Machine Squat")).toMatchObject({ primary: ["Quads"], ancillary: ["Glutes"] });
     expect(exercises.filter((e) => e.name.startsWith("Smith Machine ")).map((e) => e.name.slice(14).toLowerCase()).sort())
       .toEqual(exercises.filter((e) => e.name.toLowerCase().startsWith("barbell ")).map((e) => e.name.slice(8).toLowerCase()).sort());
-    expect(byName.get("Leg Curl")?.ancillary).toEqual([]);
+    expect(byName.get("Seated Leg Curl")?.ancillary).toEqual([]);
+    expect(byName.get("Cable Hip Adductor")?.primary).toEqual(["Adductors"]);
+    expect(byName.get("Hip Abductor")?.primary).toEqual(["Abductors"]);
   });
 });
