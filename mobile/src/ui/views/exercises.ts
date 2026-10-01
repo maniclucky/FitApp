@@ -3,11 +3,13 @@
 // static/exercise_form.js.
 import { html, nothing } from "lit-html";
 import {
-  deleteExercise, type Exercise, exerciseDeleteBlocker, type ExerciseForm, getExercise, listExercises, muscleChoices, saveExercise,
+  deleteExercise, type Exercise, exerciseDeleteBlocker, type ExerciseForm, exercisePickerData, getExercise, listExercises,
+  muscleChoices, saveExercise,
 } from "../../logic/exercises";
 import { exerciseHistory } from "../../logic/history";
 import { MUSCLE_ROLES, NOTE_MAX_LENGTH, TRACKING_MODES } from "../../logic/text";
 import { type Ctx, flash, navigate, refresh, route, stash, takeStash } from "../app";
+import { exerciseFilter, filterControls, type FilterState } from "../exerciseFilter";
 import { historyList } from "./history";
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -29,8 +31,13 @@ function registerDelete(ctx: Ctx, ex: Exercise) {
   });
 }
 
+// The list's search/muscle filter, kept while the app is open so it survives opening an
+// exercise and coming back.
+let listFilter: FilterState | null = null;
+
 route(/^\/exercises$/, async (ctx) => {
   const exercises = await listExercises(ctx.db);
+  const { muscles } = await exercisePickerData(ctx.db);
   const blocked = new Map(await Promise.all(exercises.map(async (e) => [e.id, await exerciseDeleteBlocker(ctx.db, e.id)] as const)));
   for (const ex of exercises) registerDelete(ctx, ex);
   return {
@@ -42,9 +49,10 @@ route(/^\/exercises$/, async (ctx) => {
         <a class="button" href="#/exercises/new">+ Add</a>
       </header>
       ${exercises.length ? html`
+        <div class="list-filter">${filterControls(muscles)}</div>
         <ul class="card-list">
-          ${exercises.map((ex) => html`
-            <li class="card-wrap">
+          ${exercises.map((ex, i) => html`
+            <li class="card-wrap" data-i=${i}>
               <a class="card card-link" href="#/exercises/${ex.id}">
                 <h2>${ex.name}</h2>
                 <div class="badges">${ex.modes.map((m) => html`<span class="badge">${cap(m)}</span>`)}</div>
@@ -53,7 +61,25 @@ route(/^\/exercises$/, async (ctx) => {
               </a>
               ${deleteButton(ex, blocked.get(ex.id) ?? null, false)}
             </li>`)}
-        </ul>` : html`<p class="empty">No exercises yet. Tap <strong>+ Add</strong> to create your first one.</p>`}`,
+        </ul>
+        <p class="empty" id="no-matches" hidden>No matching exercises.</p>` : html`<p class="empty">No exercises yet. Tap <strong>+ Add</strong> to create your first one.</p>`}`,
+    mount(root: HTMLElement, signal: AbortSignal) {
+      const filterRoot = root.querySelector<HTMLElement>("[data-exercise-filter]");
+      if (!filterRoot) return;
+      const cards = [...root.querySelectorAll<HTMLElement>(".card-list > li")];
+      const apply = () => {
+        let shown = 0;
+        for (const card of cards) {
+          card.hidden = !filter.matches(exercises[Number(card.dataset.i)]);
+          if (!card.hidden) shown++;
+        }
+        root.querySelector<HTMLElement>("#no-matches")!.hidden = shown > 0;
+        listFilter = filter.state();
+      };
+      const filter = exerciseFilter(filterRoot, apply, signal);
+      if (listFilter) filter.restore(listFilter);
+      apply();
+    },
   };
 });
 

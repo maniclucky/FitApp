@@ -23,9 +23,18 @@ export function filterControls(muscles: string[]) {
     </div>`;
 }
 
+export interface FilterState {
+  search: string;
+  muscle: string;
+  roles: string[];
+}
+
 export interface ExerciseFilter {
-  matches(option: PickerOption): boolean;
+  matches(option: Pick<PickerOption, "name" | "primary" | "ancillary">): boolean;
   reset(): void;
+  /** The current settings, to put back with restore() after the screen re-renders. */
+  state(): FilterState;
+  restore(state: FilterState): void;
 }
 
 export function exerciseFilter(root: HTMLElement, onChange: () => void, signal: AbortSignal): ExerciseFilter {
@@ -59,6 +68,16 @@ export function exerciseFilter(root: HTMLElement, onChange: () => void, signal: 
       for (const r of roles) {
         r.checked = false;
         r.disabled = true;
+      }
+    },
+    state: () => ({ search: search.value, muscle: muscle.value, roles: roles.filter((r) => r.checked).map((r) => r.dataset.filterRole!) }),
+    restore(state) {
+      search.value = state.search;
+      // A muscle that no exercise uses any more isn't an option; fall back to "All muscles".
+      muscle.value = [...muscle.options].some((o) => o.value === state.muscle) ? state.muscle : "";
+      for (const r of roles) {
+        r.disabled = !muscle.value;
+        r.checked = Boolean(muscle.value) && state.roles.includes(r.dataset.filterRole!);
       }
     },
   };

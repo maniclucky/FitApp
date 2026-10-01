@@ -50,6 +50,7 @@ Last updated: 2026-10-01 (port complete on Android; release + iPhone pending)
   - Existing installs, and any database replaced by a backup import (e.g. the Flask data), don't get them; the seed skips names that already exist, so calling `seedDefaultExercises` again is safe.
 - **Name fields (user, 2026-10-01):** routine, workout and exercise name inputs use `autocapitalize="words"`, so the phone keyboard shifts after each space but the user can override it. Names are not title-cased on save.
 - **New exercise flow (user, 2026-10-01):** a new exercise has "Save exercise" (back to the Exercises list) and "Save & add another" (a blank form with the name field focused). Editing an existing exercise still returns to its exercise page.
+- **Exercise list filter (user, 2026-10-01):** the Exercises list uses the same search + muscle + Primary/Ancillary filter as the pickers (`ui/exerciseFilter.ts`). Cards are hidden in place, not re-rendered. The filter's settings live in a module variable (`state()`/`restore()`), so they survive opening an exercise and coming back, but not an app restart.
 - **Backups:** Library → Backup. Export goes to the share sheet; Import uses Android's document picker (tested on the signed release APK). Import asks for confirmation first, showing the file's contents, what it replaces, and the export date. The shared confirm panel accepts `data-confirm-label`.
 - **Pending:**
   - Attach the signed APK to a Codeberg release for friends.

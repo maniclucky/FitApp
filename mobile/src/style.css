@@ -765,6 +765,7 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 
 /* Exercise search + muscle filter */
 .ex-filter { display: flex; flex-direction: column; gap: 8px; }
+.list-filter { margin-bottom: 16px; }
 .ex-filter-row { display: flex; gap: 6px; align-items: center; }
 .ex-filter select {
   flex: 1;
