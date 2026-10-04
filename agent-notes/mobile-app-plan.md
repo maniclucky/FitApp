@@ -1,7 +1,7 @@
 # Mobile app plan
 Decision and constraints for turning FitApp into a standalone Android/iPhone app.
 
-Last updated: 2026-10-01 (port complete on Android; release + iPhone pending)
+Last updated: 2026-10-01 (port complete on Android; iPhone web-app build done, hosting pending)
 
 ## Decision (user, 2026-09-30)
 - **Everything runs on the phone.** The Python logic is ported to TypeScript, with an on-device SQLite database, wrapped with **Capacitor**. The existing HTML/CSS/JS is reused as far as possible.
@@ -59,14 +59,28 @@ Last updated: 2026-10-01 (port complete on Android; release + iPhone pending)
 - **Long-press reorder is shared (`ui/dragReorder.ts`, 2026-10-01):** the day view and the routine editor use it. The routine editor's ↑/↓ buttons were removed at the user's request; the workout builder still has them. In the day view, every card collapses to its name while dragging (user request; `.log-list.collapsed`). When it lifts, the helper keeps the item's top where it was on screen and makes its centre follow the finger. After collapsing, a short page can clamp the scroll, so the lifted card may jump to the finger. Still only verified with a mouse.
 - **Day view superset button (user, 2026-10-01):** each card except the day's last has a link-↓ toggle in its action row (instead of the builder's between-card toggles, to save vertical space). `setSupersetWithNext` in `logic/day.ts` links an exercise with the one below. If either is already in a superset, it joins that superset, and two supersets merge. Unlinking splits the superset at that point, and a group left with one exercise becomes NULL. The toggle is pressed (accent colour) while the two are linked.
 - **Progress targets (user, 2026-10-01; schema v2):** the Progress page's "Sets per muscle group" uses the same rows as Volume Planning, with a weekly minimum input and a bar against "per week" for the selected range. Each target is saved when its field is committed, in **`progress_target`** (`muscle_group_id` PK, `sets` ≥ 0). That table is the app's first schema migration (v2) and doesn't exist in Flask. Its **Presets** sheet loads a preset (replacing every target; a group the preset lacks gets 0) or saves the current targets as a new preset (blank = 0, the name must be new). Edit links go to the preset page and back.
-  - Backups now export `schema: 2`. A schema-1 backup (including Flask's) imports with no progress targets. `test/backup.test.ts` and `test/parity.test.ts` treat tables missing from the Flask fixtures as empty.
+  - Backups export the current schema (`schema: 3` since autoregulation, see `autoregulation.md`). An older backup (including Flask's) imports with no progress targets or deload days, and new columns take their defaults. `test/backup.test.ts` and `test/parity.test.ts` treat tables missing from the Flask fixtures as empty, and compare rows through `asFlaskRows` (`test/sqljs.ts`), which drops mobile-only columns that hold their default. Add any new mobile-only column there.
   - `syncMuscleGroups` counts `progress_target` as a reference before deleting a retired muscle group.
 - **Backups:** Library → Backup. Export goes to the share sheet; Import uses Android's document picker (tested on the signed release APK). Import asks for confirmation first, showing the file's contents, what it replaces, and the export date. The shared confirm panel accepts `data-confirm-label`.
 - **Pending:**
   - Attach the signed APK to a Codeberg release for friends.
-  - iPhone PWA: manifest, service worker, icons, and a stable HTTPS host. The user must decide on a public repo for Codeberg Pages versus another host.
+  - iPhone PWA: a stable HTTPS host (the build side is done, see below). The user must decide on a public repo for Codeberg Pages versus another host.
+  - Test the PWA on the user's iPad: install, offline launch, share-sheet export, long-press drag, safe-area padding.
   - App icon and a notification icon (Capacitor defaults for now, per the user).
   - Retire Flask once the user has moved their data (`scripts/export_for_mobile.py`, then Import).
+
+## iPhone web app (PWA, built 2026-10-01)
+- **The host is only needed to install and to update** (user's point, 2026-10-01). After the first launch every file is on the phone, and the app runs with the host gone. But the host's address must never change: iOS ties the data to it, and updates come from it. If iOS evicts the cached files under storage pressure, the app can't start again until the host is reachable.
+- `public/manifest.webmanifest` and the Apple tags in `index.html` (`apple-touch-icon`, `black-translucent` status bar so `env(safe-area-inset-*)` pads the content). The icons in `public/icons/` are a placeholder dumbbell (generated with PIL), not final art.
+- **Service worker:** `mobile/sw.js` is a template. The `fitapp-service-worker` plugin in `vite.config.ts` writes `dist/sw.js` after each build with the list of every file in `dist/` and a version hashed from their contents. It caches everything at install and serves from the cache, falling back to the network.
+  - It deliberately doesn't call `skipWaiting`: a new version takes over at the next launch after every window of the old one has closed, so a running app never loses chunks it still lazy-loads (`web-*.js`). The old cache is deleted on activation. Verified in headless Chromium.
+  - It's registered only in the web build (`initWebApp` in `ui/native.ts`, `import.meta.env.PROD`, not native), so the Android APK and the dev server never use it. `initWebApp` also calls `navigator.storage.persist()`.
+- **jeep-sqlite's `wasmpath` defaults to the absolute `/assets`.** `db/capacitor.ts` sets it to `./assets`, so the app also works from a sub-folder such as `https://<user>.codeberg.page/fitapp/`.
+- **Export:** home-screen apps on iOS don't download files reliably, so `saveFile` uses the web share sheet (`navigator.share` with a `File`) on touch devices that support it. If the share is refused (`NotAllowedError`), it falls back to a download; closing the sheet does nothing. Desktop browsers still download.
+- **Tell friends:** use only the home-screen icon. iOS keeps a home-screen app's storage separate from Safari tabs, so data logged in Safari won't show up in the app.
+- **Temporary hosting works (user plan, 2026-10-01):** host only while someone installs, then take it down. Because of the separate storage, each person must open the **home-screen icon** once while the host is still up (the Safari visit alone doesn't cache the app for the icon).
+  - If iOS evicts the site, the files and the data go together. Recovery means hosting again, reinstalling, and importing a backup the person saved outside the app (Files/iCloud). A backup import also works across a different address.
+- **Tested** in headless Chromium (Playwright from a scratch venv, `dist/` served under `/fitapp/`): the defaults are seeded, an exercise is saved, the page reloads with the network off, and a fresh launch works with the server stopped. Not yet tested on iOS.
 
 ## Code layout (mobile/src)
 - `db/`: the `Db` interface (`types.ts`), the Capacitor adapter, `schema.ts` (versioned by `PRAGMA user_version`), and `backup.ts`.

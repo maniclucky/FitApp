@@ -13,7 +13,10 @@ const isWeb = Capacitor.getPlatform() === "web";
 export async function openCapacitorDb(): Promise<Db> {
   if (isWeb) {
     defineJeepSqlite(window);
-    document.body.appendChild(document.createElement("jeep-sqlite"));
+    const jeep = document.createElement("jeep-sqlite");
+    // Its default "/assets" breaks when the app is served from a sub-folder (e.g. a Pages site).
+    jeep.setAttribute("wasmpath", "./assets");
+    document.body.appendChild(jeep);
     await customElements.whenDefined("jeep-sqlite");
     await sqlite.initWebStore();
   }

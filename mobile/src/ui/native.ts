@@ -24,12 +24,39 @@ export function initBackButton() {
   });
 }
 
-/** Save an exported file: a download in a browser; the share sheet (Files, Drive, ...) on a phone. */
+/**
+ * Web app (iPhone/iPad home screen, or a browser): keep the app's files on the device so it
+ * starts offline (sw.js, built version only), and ask the browser not to clear the database
+ * when space runs low.
+ */
+export function initWebApp() {
+  if (isNative) return;
+  if (import.meta.env.PROD && "serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./sw.js").catch((e) => console.warn("Offline support unavailable", e));
+  }
+  void navigator.storage?.persist?.().catch(() => {});
+}
+
+/**
+ * Save an exported file: the share sheet (Files, Drive, ...) on a phone, a download on a
+ * desktop browser. iOS home-screen apps don't download files reliably, so touch devices
+ * use the web share sheet when the browser has one.
+ */
 export async function saveFile(name: string, contents: string, type: string): Promise<void> {
   if (isNative) {
     const { uri } = await Filesystem.writeFile({ path: name, data: contents, directory: Directory.Cache, encoding: Encoding.UTF8 });
     await Share.share({ title: name, url: uri, dialogTitle: "Save your FitApp backup" });
     return;
+  }
+  const file = new File([contents], name, { type });
+  if (matchMedia("(pointer: coarse)").matches && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: name });
+      return;
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return; // closed the sheet without saving
+      // Not allowed (e.g. no recent tap): fall back to a download.
+    }
   }
   const url = URL.createObjectURL(new Blob([contents], { type }));
   const a = document.createElement("a");

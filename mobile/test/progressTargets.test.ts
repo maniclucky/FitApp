@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { exportBackup, importBackup } from "../src/db/backup";
-import { migrate } from "../src/db/schema";
+import { migrate, SCHEMA_VERSION } from "../src/db/schema";
 import { syncMuscleGroups } from "../src/logic/muscles";
 import { progressTargets, replaceProgressTargets, saveProgressTarget } from "../src/logic/progress";
 import { openTestDb } from "./sqljs";
@@ -39,7 +39,7 @@ describe("progress targets", () => {
     const db = await freshDb();
     await saveProgressTarget(db, await idOf(db, "Chest"), "Chest", "5");
     const backup = await exportBackup(db);
-    expect(backup.schema).toBe(2);
+    expect(backup.schema).toBe(SCHEMA_VERSION);
     const other = await freshDb();
     await importBackup(other, backup);
     expect([...(await progressTargets(other)).values()]).toEqual([5]);

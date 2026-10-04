@@ -121,6 +121,16 @@ export const MIGRATIONS: string[] = [
     sets FLOAT NOT NULL CHECK (sets >= 0)
   );
   `,
+  // 3: autoregulation (user, 2026-10-04). Not in Flask. A routine can autoregulate its workouts'
+  // targets; log_set.target_reps is the single rep target it set; deload days are skipped as
+  // references.
+  `
+  ALTER TABLE routine ADD COLUMN autoregulate BOOLEAN NOT NULL DEFAULT 0;
+  ALTER TABLE log_set ADD COLUMN target_reps INTEGER CHECK (target_reps IS NULL OR target_reps >= 0);
+  CREATE TABLE deload_day (
+    date DATE PRIMARY KEY
+  );
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
@@ -144,5 +154,5 @@ export async function migrate(db: Db): Promise<number> {
 export const TABLES = [
   "muscle_group", "exercise", "exercise_muscle", "workout", "workout_exercise", "workout_set",
   "routine", "routine_workout", "routine_muscle_target", "target_preset", "target_preset_value", "progress_target",
-  "log_exercise", "log_set",
+  "log_exercise", "log_set", "deload_day",
 ] as const;

@@ -39,8 +39,9 @@ export async function importBackup(db: Db, data: unknown): Promise<Record<string
   if (backup.schema > SCHEMA_VERSION) {
     throw new BackupError("This backup is from a newer version of FitApp. Update the app first.");
   }
-  // Older backups are upgraded here rather than rejected. Schema 2 only added a table
-  // (progress_target), so a schema 1 backup (e.g. from Flask) simply has none of it.
+  // Older backups are upgraded here rather than rejected. Schemas 2 and 3 only added tables
+  // (progress_target, deload_day) and columns with defaults (routine.autoregulate,
+  // log_set.target_reps), so an older backup (e.g. from Flask) simply has none of them.
   const tables = backup.tables;
   if (!tables || typeof tables !== "object") throw new BackupError("The backup has no data.");
   const unknown = Object.keys(tables).filter((t) => !(TABLES as readonly string[]).includes(t));

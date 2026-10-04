@@ -45,3 +45,16 @@ export async function openTestDb(bytes?: Uint8Array): Promise<Db & { raw: Databa
   };
   return db;
 }
+
+// Columns the mobile schema added after Flask (schema 3), with the default they take on Flask data.
+const MOBILE_ONLY_COLUMNS: Record<string, Record<string, unknown>> = {
+  routine: { autoregulate: 0 },
+  log_set: { target_reps: null },
+};
+
+/** Rows with mobile-only columns dropped when they hold their default, for comparing with Flask data. */
+export function asFlaskRows(table: string, rows: Row[]): Row[] {
+  const extra = MOBILE_ONLY_COLUMNS[table];
+  if (!extra) return rows;
+  return rows.map((row) => Object.fromEntries(Object.entries(row).filter(([k, v]) => !(k in extra && extra[k] === v))));
+}

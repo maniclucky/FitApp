@@ -2,6 +2,7 @@
 // and notes sheets, long-press reordering, the calendar, swipe navigation and the rest
 // timer. Ported from templates/day.html, static/day.js and static/rest_timer.js.
 import { html, render } from "lit-html";
+import { isDeload, repRange, setDeload } from "../../logic/autoregulation";
 import * as day from "../../logic/day";
 import { type LogEntry, type LogSet } from "../../logic/day";
 import { exercisePickerData, getExercise, type PickerOption } from "../../logic/exercises";
@@ -38,6 +39,7 @@ async function dayView(ctx: Ctx, date: string) {
   const { db, today } = ctx;
   const isToday = date === today;
   const entries = await day.dayEntries(db, date);
+  const deload = await isDeload(db, date);
   const blocks = groupBlocks(entries);
   const restAfter = day.restAfterSets(blocks);
   const [title, subtitle] = dayTitle(date, today);
@@ -104,6 +106,17 @@ async function dayView(ctx: Ctx, date: string) {
       title=${linked ? "Unlink from the exercise below" : "Superset with the exercise below"}>${linkIcon} &darr;</button>`;
   };
 
+  // Autoregulated sets show one rep target as the placeholder, so the ranges they move within are
+  // shown under the Reps label: each distinct one in set order (8–15 when the plan had none, AMRAP).
+  const repRangeNote = (lx: LogEntry) => {
+    const ranges = [...new Set(lx.sets.filter((x) => x.target_reps !== null).map((x) => {
+      if (x.target_amrap) return "AMRAP";
+      const { min, max } = repRange({ reps_min: x.target_reps_min, reps_max: x.target_reps_max });
+      return `${min}–${max}`;
+    }))];
+    return ranges.length ? html`<span class="rep-range">${ranges.join(" · ")}</span>` : "";
+  };
+
   const card = (lx: LogEntry) => html`
     <section class="log-card" id="lx-${lx.id}" data-lx=${lx.id}>
       <div class="log-head">
@@ -125,7 +138,7 @@ async function dayView(ctx: Ctx, date: string) {
         </div>` : ""}
       <div class="log-grid" style="--cols: ${lx.exercise.modes.length}">
         <div class="log-row log-labels" aria-hidden="true">
-          <span>Set</span>${lx.exercise.modes.map((m) => html`<span>${FIELDS[m].label}</span>`)}<span>Done</span>
+          <span>Set</span>${lx.exercise.modes.map((m) => html`<span>${FIELDS[m].label}${m === "reps" ? repRangeNote(lx) : ""}</span>`)}<span>Done</span>
         </div>
         ${lx.sets.map((s, i) => setRow(lx, s, i + 1))}
       </div>
@@ -155,6 +168,10 @@ async function dayView(ctx: Ctx, date: string) {
           <a class="icon-btn day-nav" href="#/day/${next}" aria-label="Next day">&rsaquo;</a>
         </header>
         ${isToday ? "" : html`<p class="jump-today"><a href="#/day">Jump to today</a></p>`}
+        <div class="deload-row">
+          <button type="button" class="button subtle small deload-btn" id="deload" aria-pressed=${deload ? "true" : "false"}>Deload day</button>
+          ${deload ? html`<span class="hint">Autoregulation skips this day.</span>` : ""}
+        </div>
         ${blocks.length ? html`
           ${blocks.length > 1 ? html`<p class="hint reorder-hint">Long-press an exercise to drag it into a new order.</p>` : ""}
           <div class="log-list" id="log-list">
@@ -171,7 +188,7 @@ async function dayView(ctx: Ctx, date: string) {
             <a class="button subtle block" href=${href("/workouts/new", { day: date, next: `#/day/${date}` })}>Build workout from day</a>
             <button type="button" class="button danger small clear-day" data-confirm-delete="clear-day"
                     data-title="Clear ${isToday ? "today" : "this day"}?"
-                    data-detail="Removes all ${nExercises} exercise${nExercises === 1 ? "" : "s"} and their sets, including anything you’ve logged. This can’t be undone.">Clear day</button>` : ""}
+                    data-detail="Removes all ${nExercises} exercise${nExercises === 1 ? "" : "s"} and their sets, including anything you’ve logged${deload ? ", and the deload mark" : ""}. This can’t be undone.">Clear day</button>` : ""}
         </div>
       </div>
 
@@ -441,6 +458,20 @@ function mountDay(
       toast((err as Error).message);
     } finally {
       check.disabled = false;
+    }
+  });
+
+  // ---------- deload day (autoregulation ignores it as a reference) ----------
+  on(dayEl, "click", async (e: Event) => {
+    const btn = (e.target as Element).closest<HTMLButtonElement>("#deload");
+    if (!btn) return;
+    btn.disabled = true;
+    try {
+      await setDeload(db, o.date, btn.getAttribute("aria-pressed") !== "true");
+      await refresh();
+    } catch (err) {
+      toast((err as Error).message);
+      btn.disabled = false;
     }
   });
 

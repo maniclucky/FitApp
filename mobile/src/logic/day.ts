@@ -1,6 +1,7 @@
 // The day log: exercises and sets on a calendar day, loading workouts/routines, set
 // autosave, notes, reordering, and calendar counts. Ported from app.py.
 import { type Db, get, type Row, utcNow } from "../db/types";
+import { autoregulatedTargets, type SetTargets } from "./autoregulation";
 import { ConflictError, NotFoundError } from "./errors";
 import { type Exercise, listExercises } from "./exercises";
 import { getRoutine, routineNextIndex } from "./routines";
@@ -13,6 +14,8 @@ export interface LogSet {
   target_reps_min: number | null;
   target_reps_max: number | null;
   target_amrap: boolean;
+  /** The single rep target autoregulation set (null when it didn't). */
+  target_reps: number | null;
   target_weight: number | null;
   target_duration_seconds: number | null;
   target_distance: number | null;
@@ -21,7 +24,7 @@ export interface LogSet {
   duration_seconds: number | null;
   distance: number | null;
   completed_at: string | null;
-  /** Rep target in brief ("8–12", "AMRAP", ""), for the reps field's placeholder. */
+  /** Rep target in brief ("11", "8–12", "AMRAP", ""), for the reps field's placeholder. */
   target_label: string;
 }
 
@@ -41,9 +44,9 @@ export function toLogSet(r: Row): LogSet {
   return {
     id: r.id, position: r.position,
     target_reps_min: r.target_reps_min, target_reps_max: r.target_reps_max, target_amrap: Boolean(r.target_amrap),
-    target_weight: r.target_weight, target_duration_seconds: r.target_duration_seconds, target_distance: r.target_distance,
+    target_reps: r.target_reps ?? null, target_weight: r.target_weight, target_duration_seconds: r.target_duration_seconds, target_distance: r.target_distance,
     weight: r.weight, reps: r.reps, duration_seconds: r.duration_seconds, distance: r.distance, completed_at: r.completed_at,
-    target_label: repTargetLabel(r.target_reps_min, r.target_reps_max, Boolean(r.target_amrap)),
+    target_label: r.target_reps != null ? String(r.target_reps) : repTargetLabel(r.target_reps_min, r.target_reps_max, Boolean(r.target_amrap)),
   };
 }
 
@@ -123,12 +126,15 @@ async function nextPositionAndGroup(db: Db, date: string): Promise<[number, numb
   return [(r.p ?? 0) + 1, r.g ?? 0];
 }
 
-/** Append a workout's exercises to a day, snapshotting its targets so later plan edits never change history. */
-export async function addWorkoutToDay(db: Db, date: string, workout: Workout): Promise<void> {
+/**
+ * Append a workout's exercises to a day, snapshotting its targets so later plan edits never change
+ * history. `adjusted` (autoregulation) replaces the rep and weight targets of matching sets.
+ */
+export async function addWorkoutToDay(db: Db, date: string, workout: Workout, adjusted?: (SetTargets | null)[][]): Promise<void> {
   await db.transaction(async () => {
     let [position, lastGroup] = await nextPositionAndGroup(db, date);
     const groups = new Map<number, number>(); // workout superset_group -> day superset_group
-    for (const wx of workout.slots) {
+    for (const [i, wx] of workout.slots.entries()) {
       let group: number | null = null;
       if (wx.superset_group !== null) {
         if (!groups.has(wx.superset_group)) groups.set(wx.superset_group, lastGroup + groups.size + 1);
@@ -139,10 +145,12 @@ export async function addWorkoutToDay(db: Db, date: string, workout: Workout): P
         [date, position, wx.exercise.id, workout.id, group],
       )).lastId;
       for (const [n, ws] of wx.sets.entries()) {
+        const a = adjusted?.[i]?.[n];
         await db.run(
-          `INSERT INTO log_set (log_exercise_id, position, target_reps_min, target_reps_max, target_amrap,
-             target_weight, target_duration_seconds, target_distance) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [entryId, n + 1, ws.reps_min, ws.reps_max, ws.is_amrap ? 1 : 0, ws.weight, ws.duration_seconds, ws.distance],
+          `INSERT INTO log_set (log_exercise_id, position, target_reps_min, target_reps_max, target_amrap, target_reps,
+             target_weight, target_duration_seconds, target_distance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [entryId, n + 1, ws.reps_min, ws.reps_max, ws.is_amrap ? 1 : 0, a ? a.reps : null, a ? a.weight : ws.weight,
+            ws.duration_seconds, ws.distance],
         );
       }
       position++;
@@ -165,7 +173,8 @@ export async function loadRoutine(db: Db, date: string, routineId: number, index
     throw new ConflictError("That routine changed. Reload and try again.");
   }
   const workout = await getWorkout(db, routine.workout_ids[i]);
-  await addWorkoutToDay(db, date, workout);
+  const adjusted = routine.autoregulate ? await autoregulatedTargets(db, date, workout.id, workout.slots) : undefined;
+  await addWorkoutToDay(db, date, workout, adjusted);
   return workout.name;
 }
 
@@ -288,10 +297,10 @@ export async function addLogSet(db: Db, entryId: number) {
   const entry = await getEntry(db, entryId);
   const last = entry.sets.at(-1);
   const { lastId } = await db.run(
-    `INSERT INTO log_set (log_exercise_id, position, target_reps_min, target_reps_max, target_amrap,
-       target_weight, target_duration_seconds, target_distance) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO log_set (log_exercise_id, position, target_reps_min, target_reps_max, target_amrap, target_reps,
+       target_weight, target_duration_seconds, target_distance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [entryId, last ? last.position + 1 : 1, last?.target_reps_min ?? null, last?.target_reps_max ?? null,
-      last?.target_amrap ? 1 : 0, last?.target_weight ?? null, last?.target_duration_seconds ?? null, last?.target_distance ?? null],
+      last?.target_amrap ? 1 : 0, last?.target_reps ?? null, last?.target_weight ?? null, last?.target_duration_seconds ?? null, last?.target_distance ?? null],
   );
   return setState(await getSet(db, lastId));
 }
@@ -335,7 +344,10 @@ export async function clearDay(db: Db, date: string): Promise<number> {
   checkDate(date);
   // Count first: "rows changed" from the plugin includes cascaded set deletes on some platforms.
   const n = (await get(db, "SELECT COUNT(*) AS n FROM log_exercise WHERE date = ?", [date]))!.n as number;
-  await db.run("DELETE FROM log_exercise WHERE date = ?", [date]);
+  await db.transaction(async () => {
+    await db.run("DELETE FROM log_exercise WHERE date = ?", [date]);
+    await db.run("DELETE FROM deload_day WHERE date = ?", [date]); // the deload mark goes too (user)
+  });
   return n;
 }
 

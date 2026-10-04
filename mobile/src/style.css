@@ -555,6 +555,11 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .day-date { font-size: 0.85rem; color: var(--muted); }
 .jump-today { text-align: center; margin: 0 0 12px; }
 .jump-today a { color: var(--accent); font-weight: 600; font-size: 0.9rem; }
+.deload-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 0 0 10px; }
+.deload-row .hint { margin: 0; }
+.deload-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.rep-range { display: block; font-weight: 400; font-size: 0.85em; line-height: 1.1; color: var(--muted); }
+.field > label.switch { display: flex; margin: 8px 0 0; }
 
 .log-list { display: flex; flex-direction: column; gap: 14px; margin: 8px 0 20px; }
 .log-block.superset {

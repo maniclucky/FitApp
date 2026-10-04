@@ -9,6 +9,8 @@ export interface Routine {
   id: number;
   name: string;
   cycle_days: number;
+  /** Autoregulation (user requirement): loading its workouts adjusts reps/weight targets from the last session. */
+  autoregulate: boolean;
   /** Workout ids in order (repeats allowed). */
   workout_ids: number[];
   /** muscle_group_id -> weekly minimum (null = saved blank). Empty if never saved with targets. */
@@ -17,11 +19,11 @@ export interface Routine {
 
 export async function listRoutines(db: Db, ids?: number[]): Promise<Routine[]> {
   const where = ids ? `WHERE id IN (${ids.map(() => "?").join(",") || "NULL"})` : "";
-  const routines = await db.all(`SELECT id, name, cycle_days FROM routine ${where} ORDER BY name`, ids ?? []);
+  const routines = await db.all(`SELECT id, name, cycle_days, autoregulate FROM routine ${where} ORDER BY name`, ids ?? []);
   const slots = await db.all("SELECT routine_id, workout_id FROM routine_workout ORDER BY routine_id, position");
   const targets = await db.all("SELECT routine_id, muscle_group_id, sets FROM routine_muscle_target ORDER BY rowid");
   return routines.map((r) => ({
-    id: r.id, name: r.name, cycle_days: r.cycle_days,
+    id: r.id, name: r.name, cycle_days: r.cycle_days, autoregulate: Boolean(r.autoregulate),
     workout_ids: slots.filter((s) => s.routine_id === r.id).map((s) => s.workout_id),
     targets: new Map(targets.filter((t) => t.routine_id === r.id).map((t) => [t.muscle_group_id, t.sets])),
   }));
@@ -52,13 +54,14 @@ export interface RoutineForm {
   name: string;
   workout_ids: unknown;
   cycle_days: string;
+  autoregulate?: boolean;
   /** muscle_group_id -> the text in its target input. */
   targets: Record<number, string>;
 }
 
 export type SaveRoutineResult =
   | { ok: true; id: number; name: string }
-  | { ok: false; errors: string[]; badTargets: Set<number>; form: { name: string; workout_ids: number[]; cycle_days: string; targets: Record<number, string> } };
+  | { ok: false; errors: string[]; badTargets: Set<number>; form: { name: string; workout_ids: number[]; cycle_days: string; autoregulate: boolean; targets: Record<number, string> } };
 
 /** Create (id null) or replace a routine: name, workouts, cycle length and a target for every muscle group. */
 export async function saveRoutine(db: Db, id: number | null, input: RoutineForm): Promise<SaveRoutineResult> {
@@ -75,6 +78,7 @@ export async function saveRoutine(db: Db, id: number | null, input: RoutineForm)
   if (!/^\d+$/.test(cycle) || !(Number(cycle) >= 1 && Number(cycle) <= 365)) {
     errors.push("Days to complete the routine must be a whole number from 1 to 365.");
   }
+  const autoregulate = Boolean(input.autoregulate);
   const badTargets = new Set<number>();
   const texts: Record<number, string> = {};
   const parsed = new Map<number, number | null>();
@@ -89,14 +93,16 @@ export async function saveRoutine(db: Db, id: number | null, input: RoutineForm)
       badTargets.add(mg.id);
     }
   }
-  if (errors.length) return { ok: false, errors, badTargets, form: { name, workout_ids: ids, cycle_days: cycle, targets: texts } };
+  if (errors.length) return { ok: false, errors, badTargets, form: { name, workout_ids: ids, cycle_days: cycle, autoregulate, targets: texts } };
 
   const savedId = await db.transaction(async () => {
     let routineId = id;
     if (routineId === null) {
-      routineId = (await db.run("INSERT INTO routine (name, created_at, cycle_days) VALUES (?, ?, ?)", [name, utcNow(), Number(cycle)])).lastId;
+      routineId = (await db.run("INSERT INTO routine (name, created_at, cycle_days, autoregulate) VALUES (?, ?, ?, ?)",
+        [name, utcNow(), Number(cycle), autoregulate ? 1 : 0])).lastId;
     } else {
-      await db.run("UPDATE routine SET name = ?, cycle_days = ? WHERE id = ?", [name, Number(cycle), routineId]);
+      await db.run("UPDATE routine SET name = ?, cycle_days = ?, autoregulate = ? WHERE id = ?",
+        [name, Number(cycle), autoregulate ? 1 : 0, routineId]);
       await db.run("DELETE FROM routine_workout WHERE routine_id = ?", [routineId]);
       await db.run("DELETE FROM routine_muscle_target WHERE routine_id = ?", [routineId]);
     }

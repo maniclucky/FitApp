@@ -23,4 +23,5 @@ Anything here is committed to git so future sessions can build on it.
 ## Index
 - [stack-decisions.md](stack-decisions.md) — why Flask, mobile-first layout rules, bottom bar, localhost-only constraint
 - [data-model.md](data-model.md) — migrations workflow, exercises, workouts (set targets), routines, day log, notes, exercise history, progress page (target snapshots), superset/AMRAP/rest-timer rules, delete rules, demo data
-- [mobile-app-plan.md](mobile-app-plan.md) — decision: offline on-device Capacitor app (Android APK + iPhone PWA), no servers/data/stores, no Mac; default presets/exercises seeded on fresh install
+- [mobile-app-plan.md](mobile-app-plan.md) — decision: offline on-device Capacitor app (Android APK + iPhone PWA), no servers/data/stores, no Mac; default presets/exercises seeded on fresh install; iPhone PWA (service worker, manifest, hosting)
+- [autoregulation.md](autoregulation.md) — routine autoregulation rules (rep/weight targets from the last session), reference lookup, deload days, schema v3 (mobile only)

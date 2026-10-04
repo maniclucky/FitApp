@@ -59,9 +59,9 @@ route(/^\/routines$/, async (ctx) => {
 route(/^\/routines\/new$/, (ctx) => routineForm(ctx, null));
 route(/^\/routines\/(\d+)$/, async (ctx) => routineForm(ctx, await getRoutine(ctx.db, Number(ctx.params[0]))));
 
-type RoutineStash = { errors: string[]; badTargets: Set<number>; form: { name: string; workout_ids: number[]; cycle_days: string; targets: Record<number, string> } };
+type RoutineStash = { errors: string[]; badTargets: Set<number>; form: { name: string; workout_ids: number[]; cycle_days: string; autoregulate: boolean; targets: Record<number, string> } };
 // Unsaved routine edits kept while visiting the preset page (restored on return), by path.
-type Draft = { name: string; ids: number[]; cycle: string; targets: Record<string, string> };
+type Draft = { name: string; ids: number[]; cycle: string; autoregulate: boolean; targets: Record<string, string> };
 const drafts = new Map<string, Draft>();
 
 async function routineForm(ctx: Ctx, routine: Routine | null) {
@@ -71,6 +71,7 @@ async function routineForm(ctx: Ctx, routine: Routine | null) {
   const name = stashed?.form.name ?? (routine ? routine.name : source ? copyName(source.name) : "");
   const workoutIds = stashed?.form.workout_ids ?? source?.workout_ids ?? [];
   const cycleDays = stashed?.form.cycle_days ?? (source ? String(source.cycle_days) : "7");
+  const autoregulate = stashed?.form.autoregulate ?? source?.autoregulate ?? false;
   const targets = stashed?.form.targets ?? targetTexts(source);
   const errors = stashed?.errors ?? [];
   const badTargets = stashed?.badTargets ?? new Set<number>();
@@ -111,6 +112,13 @@ async function routineForm(ctx: Ctx, routine: Routine | null) {
           <ol class="builder-list" id="routine-list"></ol>
           <p class="empty small" id="routine-empty">No workouts yet.</p>
           <button type="button" class="button subtle block" id="open-picker">+ Add workout</button>
+          <label class="switch">
+            <input type="checkbox" id="autoregulate" name="autoregulate" .checked=${autoregulate}>
+            <span>Autoregulation</span>
+          </label>
+          <p class="hint">Sets each workout’s rep and weight targets from the last time you did it: one more rep
+            if you hit the target, +5&nbsp;lb past the top of the rep range, −5&nbsp;lb below the bottom
+            (8–15 when a set has no range). Deload days are skipped.</p>
         </div>
         <div class="field" role="tabpanel" id="panel-volume" aria-labelledby="tab-volume" hidden>
           <div class="cycle-days">
@@ -212,6 +220,7 @@ function mountRoutineEditor(
   const volumeList = root.querySelector<HTMLElement>("#muscle-volume")!;
   const cycleInput = root.querySelector<HTMLInputElement>("#cycle_days")!;
   const nameInput = root.querySelector<HTMLInputElement>("#name")!;
+  const autoregulateInput = root.querySelector<HTMLInputElement>("#autoregulate")!;
   const esc = (s: unknown) =>
     String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -299,7 +308,7 @@ function mountRoutineEditor(
     if (t.closest("[data-leave]")) {
       // Keep unsaved edits while visiting the preset page; restored when we come back.
       drafts.set(opts.draftKey, {
-        name: nameInput.value, ids: [...ids], cycle: cycleInput.value,
+        name: nameInput.value, ids: [...ids], cycle: cycleInput.value, autoregulate: autoregulateInput.checked,
         targets: Object.fromEntries(targetInputs().map((i) => [i.name, i.value])),
       });
       return;
@@ -323,6 +332,7 @@ function mountRoutineEditor(
     nameInput.value = draft.name;
     ids.splice(0, ids.length, ...draft.ids.filter((id) => byId.has(id)));
     cycleInput.value = draft.cycle;
+    autoregulateInput.checked = draft.autoregulate;
     for (const input of targetInputs()) if (input.name in draft.targets) input.value = draft.targets[input.name];
     return true;
   }
@@ -398,6 +408,7 @@ function mountRoutineEditor(
       name: nameInput.value,
       workout_ids: [...ids],
       cycle_days: cycleInput.value,
+      autoregulate: autoregulateInput.checked,
       targets: Object.fromEntries(targetInputs().map((i) => [Number(i.name.replace("target-", "")), i.value])),
     });
   }, { signal });

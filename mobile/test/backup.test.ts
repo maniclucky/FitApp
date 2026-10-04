@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { BackupError, exportBackup, importBackup } from "../src/db/backup";
 import { migrate, SCHEMA_VERSION, TABLES } from "../src/db/schema";
-import { openTestDb } from "./sqljs";
+import { asFlaskRows, openTestDb } from "./sqljs";
 
 const FIXTURE = new URL("./fixtures/flask-backup.json", import.meta.url);
 
@@ -64,11 +64,11 @@ describe("backup", () => {
     const flask = JSON.parse(readFileSync(FIXTURE, "utf8"));
     const db = await freshDb();
     const counts = await importBackup(db, flask);
-    // Flask exports have no progress_target (schema 2); it imports as empty.
+    // Flask exports have no progress_target or deload_day (schemas 2-3); they import as empty.
     for (const t of TABLES) expect(counts[t], t).toBe(flask.tables[t]?.length ?? 0);
     expect(await db.all("PRAGMA foreign_key_check")).toEqual([]);
     const again = await exportBackup(db);
-    for (const t of TABLES) expect(again.tables[t], t).toEqual(flask.tables[t] ?? []);
+    for (const t of TABLES) expect(asFlaskRows(t, again.tables[t]), t).toEqual(flask.tables[t] ?? []);
     // A second import over existing data replaces it rather than duplicating.
     await importBackup(db, again);
     expect((await db.all("SELECT COUNT(*) AS n FROM log_set"))[0].n).toBe(flask.tables.log_set.length);

@@ -15,7 +15,7 @@ import { progressData, progressRange } from "../src/logic/progress";
 import { deleteRoutine, getRoutine, routineNextIndex, saveRoutine } from "../src/logic/routines";
 import { formatVolume, truncate1, ValidationError } from "../src/logic/text";
 import { deleteWorkout, groupBlocks, listWorkouts, saveWorkout, slotSummary, workoutDeleteBlocker } from "../src/logic/workouts";
-import { openTestDb } from "./sqljs";
+import { asFlaskRows, openTestDb } from "./sqljs";
 
 const fixture = (name: string) => new URL(`./fixtures/${name}`, import.meta.url);
 const ready = existsSync(fixture("scenario-start.json")) && existsSync(fixture("scenario-expected.json"));
@@ -196,5 +196,5 @@ it.skipIf(!ready)("replays the Flask scenario with identical results and final d
     expect(got, `step ${i}: ${step.op}`).toEqual(want);
   }
   const final = await dump(db);
-  for (const table of TABLES) expect(final[table], `final ${table}`).toEqual(expected.final[table] ?? []);
+  for (const table of TABLES) expect(asFlaskRows(table, final[table]), `final ${table}`).toEqual(expected.final[table] ?? []);
 });
