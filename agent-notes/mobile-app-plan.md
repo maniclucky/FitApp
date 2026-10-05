@@ -14,13 +14,13 @@ Last updated: 2026-10-01 (port complete on Android; iPhone web-app build done, h
   - Each person's data lives only on their own phone.
 
 ## Distribution
-- **Android:** a signed APK built on Linux and shared directly (e.g. attached to a Codeberg release). Friends allow \"install unknown apps\" once. Capacitor gives native local notifications, so the rest-timer alarm can fire while the phone is locked.
-- **iPhone (no Mac, no store):** the same offline build as an installable PWA. It's opened once in Safari from a static URL, then Share → Add to Home Screen, and from then on runs offline. Only the app's files are hosted (e.g. Codeberg Pages); user data never leaves the phone. Limits:
+- **Android:** a signed APK built on Linux and shared directly (e.g. attached to a GitHub release). Friends allow \"install unknown apps\" once. Capacitor gives native local notifications, so the rest-timer alarm can fire while the phone is locked.
+- **iPhone (no Mac, no store):** the same offline build as an installable PWA. It's opened once in Safari from a static URL, then Share → Add to Home Screen, and from then on runs offline. Only the app's files are hosted (e.g. GitHub Pages); user data never leaves the phone. Limits:
   - No rest-timer alarm while locked (web apps can't schedule local notifications).
   - iOS may clear site storage in rare cases, so an on-device backup file matters.
 - **Chosen for iPhone (user, 2026-09-30): the installable PWA, not a native iOS build.** A native iOS build later would need a cloud Mac build and a $99/yr Apple account (TestFlight or Ad Hoc); that's out of scope unless the user asks.
 - The user has an **iPad** to use as the Apple test device. Its Safari uses the same WebKit as iPhone, so it can test install, offline use, storage and touch (including the untested long-press drag). Safari can be debugged from Linux over USB with `ios-webkit-debug-proxy`/`libimobiledevice` (not installed yet; only if needed). The iPad can't build the app (no Xcode on iPadOS).
-- The PWA needs a stable HTTPS static address, because iOS storage belongs to the exact origin. Moving it later means users start empty unless they Export/Import. Still open: whether the Codeberg repo can be public (required by Codeberg Pages) or another static host is used.
+- The PWA needs a stable HTTPS static address, because iOS storage belongs to the exact origin. Moving it later means users start empty unless they Export/Import. Still open: whether the GitHub repo is public (GitHub Pages needs a public repo on the free plan) or another static host is used. (The repo moved from Codeberg to GitHub on 2026-10-05; Codeberg bans AI-generated code.).
 
 ## Backups
 - There's no cloud. Add **export to file / import from file** (a JSON backup the user saves wherever they like), plus a one-time import of the existing Flask `instance/fitapp.db` so current history carries over.
@@ -63,8 +63,8 @@ Last updated: 2026-10-01 (port complete on Android; iPhone web-app build done, h
   - `syncMuscleGroups` counts `progress_target` as a reference before deleting a retired muscle group.
 - **Backups:** Library → Backup. Export goes to the share sheet; Import uses Android's document picker (tested on the signed release APK). Import asks for confirmation first, showing the file's contents, what it replaces, and the export date. The shared confirm panel accepts `data-confirm-label`.
 - **Pending:**
-  - Attach the signed APK to a Codeberg release for friends.
-  - iPhone PWA: a stable HTTPS host (the build side is done, see below). The user must decide on a public repo for Codeberg Pages versus another host.
+  - Attach the signed APK to a GitHub release for friends.
+  - iPhone PWA: a stable HTTPS host (the build side is done, see below). The user must decide on a public repo for GitHub Pages versus another host.
   - Test the PWA on the user's iPad: install, offline launch, share-sheet export, long-press drag, safe-area padding.
   - App icon and a notification icon (Capacitor defaults for now, per the user).
   - Retire Flask once the user has moved their data (`scripts/export_for_mobile.py`, then Import).
@@ -75,7 +75,7 @@ Last updated: 2026-10-01 (port complete on Android; iPhone web-app build done, h
 - **Service worker:** `mobile/sw.js` is a template. The `fitapp-service-worker` plugin in `vite.config.ts` writes `dist/sw.js` after each build with the list of every file in `dist/` and a version hashed from their contents. It caches everything at install and serves from the cache, falling back to the network.
   - It deliberately doesn't call `skipWaiting`: a new version takes over at the next launch after every window of the old one has closed, so a running app never loses chunks it still lazy-loads (`web-*.js`). The old cache is deleted on activation. Verified in headless Chromium.
   - It's registered only in the web build (`initWebApp` in `ui/native.ts`, `import.meta.env.PROD`, not native), so the Android APK and the dev server never use it. `initWebApp` also calls `navigator.storage.persist()`.
-- **jeep-sqlite's `wasmpath` defaults to the absolute `/assets`.** `db/capacitor.ts` sets it to `./assets`, so the app also works from a sub-folder such as `https://<user>.codeberg.page/fitapp/`.
+- **jeep-sqlite's `wasmpath` defaults to the absolute `/assets`.** `db/capacitor.ts` sets it to `./assets`, so the app also works from a sub-folder such as `https://<user>.github.io/FitApp/`.
 - **Export:** home-screen apps on iOS don't download files reliably, so `saveFile` uses the web share sheet (`navigator.share` with a `File`) on touch devices that support it. If the share is refused (`NotAllowedError`), it falls back to a download; closing the sheet does nothing. Desktop browsers still download.
 - **Tell friends:** use only the home-screen icon. iOS keeps a home-screen app's storage separate from Safari tabs, so data logged in Safari won't show up in the app.
 - **Temporary hosting works (user plan, 2026-10-01):** host only while someone installs, then take it down. Because of the separate storage, each person must open the **home-screen icon** once while the host is still up (the Safari visit alone doesn't cache the app for the icon).
