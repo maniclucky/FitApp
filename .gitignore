@@ -27,3 +27,9 @@ instance/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Mobile app: copied from node_modules/sql.js by `npm install` (postinstall)
+mobile/public/assets/sql-wasm.wasm
+
+# Mobile tests: exported from the local Flask DB (personal data), regenerate with scripts/export_for_mobile.py
+mobile/test/fixtures/
