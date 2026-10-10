@@ -616,7 +616,7 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 }
 .check[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .check:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
-.log-actions { display: flex; gap: 8px; margin-top: 10px; }
+.log-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .button:disabled { opacity: 0.4; cursor: default; }
 
 .day-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
@@ -911,7 +911,8 @@ textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   color: var(--muted);
 }
 .log-notes { margin: -2px 0 10px; }
-.log-actions .notes-btn { margin-left: auto; }
+/* History and Notes stay together on the right; on a narrow card they wrap to a second line as a pair. */
+.log-actions-end { display: flex; gap: 8px; margin-left: auto; }
 .superset-btn { display: inline-flex; align-items: center; gap: 2px; padding: 0 10px; }
 .superset-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .history-day .note { margin: 2px 0 6px; }
@@ -988,6 +989,7 @@ textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .settings-card { display: flex; flex-direction: column; gap: 12px; }
 .settings-card h2 { margin: 0; }
 .settings-card .hint { margin: 0; }
+.settings-heading { margin: 24px 0 12px; }
 .backup-card h2 { margin-bottom: 4px; }
 .backup-card .hint { margin: 0 0 12px; }
 .file-button { cursor: pointer; }

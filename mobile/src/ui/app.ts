@@ -19,7 +19,7 @@ export interface Ctx {
 export interface View {
   title: string;
   /** Which bottom-bar item is current; omit it (and set tabbar: false) for forms. */
-  section?: "day" | "routines" | "workouts" | "exercises" | "progress" | "backup" | "settings";
+  section?: "day" | "routines" | "workouts" | "exercises" | "progress" | "settings";
   tabbar?: boolean;
   /** Extra class on <main>, e.g. "has-timer". */
   screenClass?: string;
@@ -133,7 +133,7 @@ const gearIcon = html`<svg viewBox="0 0 24 24" width="24" height="24" aria-hidde
 function shell(view: View, messages: typeof flashes) {
   const tabbar = view.tabbar ?? true;
   const tracking = [["day", "Today"], ["progress", "Progress"]] as const;
-  const library = [["routines", "Routines"], ["workouts", "Workouts"], ["exercises", "Exercises"], ["backup", "Backup"]] as const;
+  const library = [["routines", "Routines"], ["workouts", "Workouts"], ["exercises", "Exercises"]] as const;
   const current = (s: string) => (view.section === s ? "page" : nothing);
   // A pop-up menu button (user requirement: the label stays fixed and turns accent-colored on any of its screens).
   const menu = (id: string, label: string, items: readonly (readonly [string, string])[]) => html`

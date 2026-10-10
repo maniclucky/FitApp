@@ -18,7 +18,7 @@ import { longPressReorder } from "../dragReorder";
 import { formatTime, parseTime } from "../time";
 import { historyList } from "./history";
 import { tapHaptic } from "../native";
-import { quickFillOn } from "../prefs";
+import { autoregulateOn, quickFillOn } from "../prefs";
 import { takeCreatedExercises } from "./exercises";
 import { mountRestTimer, restTimerBar } from "./restTimer";
 
@@ -128,7 +128,9 @@ async function dayView(ctx: Ctx, date: string) {
           ${lx.workout_name ? html`<span class="log-source">${lx.workout_name}</span>` : ""}
         </div>
         <div class="log-head-actions">
-          <button type="button" class="button subtle small" data-history=${lx.exercise.id} data-name=${lx.exercise.name}>History</button>
+          ${lx.exercise.tracks.reps ? html`
+            <button type="button" class="button subtle small" data-ar=${lx.id}
+                    aria-label="Autoregulate ${lx.exercise.name} from its last session">AR</button>` : ""}
           <button type="button" class="icon-btn danger" aria-label="Remove ${lx.exercise.name}"
                   data-confirm-delete="entry:${lx.id}" data-name=${lx.exercise.name}
                   data-detail="Removes it and its sets from this day.">&times;</button>
@@ -149,8 +151,11 @@ async function dayView(ctx: Ctx, date: string) {
         <button type="button" class="button subtle small" data-act="add-set" data-lx=${lx.id}>+ Set</button>
         <button type="button" class="button subtle small" data-act="remove-set" data-lx=${lx.id} ?disabled=${lx.sets.length === 1}>&minus; Set</button>
         ${supersetButton(lx)}
-        <button type="button" class="button subtle small notes-btn" data-notes=${lx.id} data-name=${lx.exercise.name}
+        <div class="log-actions-end">
+          <button type="button" class="button subtle small" data-history=${lx.exercise.id} data-name=${lx.exercise.name}>History</button>
+          <button type="button" class="button subtle small" data-notes=${lx.id} data-name=${lx.exercise.name}
                 data-exercise-note=${lx.exercise.note ?? ""} data-session-note=${lx.note ?? ""}>Notes</button>
+        </div>
       </div>
     </section>`;
 
@@ -631,8 +636,8 @@ function mountDay(
     const id = Number(item.dataset.id);
     btn.disabled = true;
     try {
-      if (item.dataset.kind === "routines") await day.loadRoutine(db, o.date, id, Number(item.dataset.index));
-      else await day.loadWorkout(db, o.date, id);
+      if (item.dataset.kind === "routines") await day.loadRoutine(db, o.date, id, Number(item.dataset.index), autoregulateOn());
+      else await day.loadWorkout(db, o.date, id, autoregulateOn());
       addSheet.close();
       await refresh();
     } catch (err) {
@@ -670,7 +675,7 @@ function mountDay(
     on(exAdd, "click", async () => {
       exAdd.disabled = true;
       try {
-        await day.addExercises(db, o.date, [...selected]);
+        await day.addExercises(db, o.date, [...selected], autoregulateOn());
         addSheet.close();
         await refresh();
       } catch (err) {
@@ -691,6 +696,25 @@ function mountDay(
     showTab("exercises");
     addSheet.showModal();
   }
+
+  // ---------- AR: autoregulated targets from the exercise's last non-deload session ----------
+  on(dayEl, "click", async (e: Event) => {
+    const btn = (e.target as Element).closest<HTMLButtonElement>("[data-ar]");
+    if (!btn) return;
+    btn.disabled = true;
+    try {
+      const from = await day.autoregulateEntry(db, Number(btn.dataset.ar));
+      if (!from) {
+        btn.disabled = false;
+        return toast("No earlier session of this exercise to go by (deload days don’t count).");
+      }
+      flash(`Targets set from ${historyDate(from, ctx.today)}.`);
+      await refresh();
+    } catch (err) {
+      btn.disabled = false;
+      toast((err as Error).message);
+    }
+  });
 
   // ---------- history sheet: this exercise's sessions before this day ----------
   const historySheet = root.querySelector<HTMLDialogElement>("#history-sheet")!;

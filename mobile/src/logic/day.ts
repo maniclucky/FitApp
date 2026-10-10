@@ -1,7 +1,7 @@
 // The day log: exercises and sets on a calendar day, loading workouts/routines, set
 // autosave, notes, reordering, and calendar counts. Ported from app.py.
 import { type Db, get, type Row, utcNow } from "../db/types";
-import { autoregulatedTargets, type SetTargets } from "./autoregulation";
+import { autoregulatedTargets, nextTargets, NOT_DELOAD, type PreviousSet, type SetTargets } from "./autoregulation";
 import { ConflictError, NotFoundError } from "./errors";
 import { type Exercise, listExercises } from "./exercises";
 import { getRoutine, routineNextIndex } from "./routines";
@@ -158,13 +158,19 @@ export async function addWorkoutToDay(db: Db, date: string, workout: Workout, ad
   });
 }
 
-export async function loadWorkout(db: Db, date: string, workoutId: number): Promise<void> {
+// `autoregulate` is the Settings switch (user requirement, 2026-10-10; per device, so the UI
+// passes it in). Off: plan targets as saved, like Flask.
+
+/** Loads a workout. Autoregulated from that workout's latest earlier non-deload session, from any source. */
+export async function loadWorkout(db: Db, date: string, workoutId: number, autoregulate = false): Promise<void> {
   checkDate(date);
-  await addWorkoutToDay(db, date, await getWorkout(db, workoutId));
+  const workout = await getWorkout(db, workoutId);
+  const adjusted = autoregulate ? await autoregulatedTargets(db, date, workout.id, workout.slots) : undefined;
+  await addWorkoutToDay(db, date, workout, adjusted);
 }
 
 /** Loads the routine's workout at `index` (default: the next one in its rotation). Returns the workout name. */
-export async function loadRoutine(db: Db, date: string, routineId: number, index?: number): Promise<string> {
+export async function loadRoutine(db: Db, date: string, routineId: number, index?: number, autoregulate = false): Promise<string> {
   checkDate(date);
   const routine = await getRoutine(db, routineId);
   if (!routine.workout_ids.length) throw new ConflictError("That routine has no workouts.");
@@ -173,13 +179,16 @@ export async function loadRoutine(db: Db, date: string, routineId: number, index
     throw new ConflictError("That routine changed. Reload and try again.");
   }
   const workout = await getWorkout(db, routine.workout_ids[i]);
-  const adjusted = routine.autoregulate ? await autoregulatedTargets(db, date, workout.id, workout.slots) : undefined;
+  const adjusted = autoregulate ? await autoregulatedTargets(db, date, workout.id, workout.slots) : undefined;
   await addWorkoutToDay(db, date, workout, adjusted);
   return workout.name;
 }
 
-/** Appends exercises to a day in the given order: 3 empty sets each, or 1 if it doesn't track reps. */
-export async function addExercises(db: Db, date: string, ids: unknown): Promise<void> {
+/**
+ * Appends exercises to a day in the given order: 3 empty sets each, or 1 if it doesn't track reps.
+ * Autoregulated: each one's targets come from that exercise's last session, as with the AR button.
+ */
+export async function addExercises(db: Db, date: string, ids: unknown, autoregulate = false): Promise<void> {
   checkDate(date);
   if (!Array.isArray(ids) || !ids.length || ids.some((i) => typeof i !== "number" || !Number.isInteger(i))) {
     throw new ValidationError("Pick at least one exercise.");
@@ -194,6 +203,7 @@ export async function addExercises(db: Db, date: string, ids: unknown): Promise<
       )).lastId;
       const count = byId.get(exerciseId)!.tracks.reps ? 3 : 1;
       for (let n = 1; n <= count; n++) await db.run("INSERT INTO log_set (log_exercise_id, position) VALUES (?, ?)", [entryId, n]);
+      if (autoregulate && byId.get(exerciseId)!.tracks.reps) await targetsFromLastSession(db, entryId);
     }
   });
 }
@@ -290,6 +300,44 @@ export async function updateSet(db: Db, setId: number, data: Record<string, unkn
     await db.run(`UPDATE log_set SET ${updates.map(([f]) => `${f} = ?`).join(", ")} WHERE id = ?`, [...updates.map(([, v]) => v), setId]);
   }
   return setState(await getSet(db, setId));
+}
+
+/**
+ * Exercise-based autoregulation, for the day card's AR button and for exercises added on their own
+ * (user requirement, 2026-10-10): sets each set's rep and weight targets by the autoregulation
+ * rules, from this exercise's latest non-deload entry before this day (any source, ad hoc or a
+ * workout), matching sets by position. It replaces targets already there (e.g. from a workout's
+ * autoregulation). The range is the set's own target range (8–15 when it has none). Sets past the
+ * reference's count keep their targets. Completed sets are skipped, and so is each target whose
+ * field already has a value (user requirement); logged values are never touched.
+ * Returns the reference date, or null when there's no earlier entry to go by.
+ */
+export async function autoregulateEntry(db: Db, entryId: number): Promise<string | null> {
+  return db.transaction(() => targetsFromLastSession(db, entryId));
+}
+
+async function targetsFromLastSession(db: Db, entryId: number): Promise<string | null> {
+  const entry = await getEntry(db, entryId);
+  if (!entry.exercise.tracks.reps) throw new ValidationError("Autoregulation needs an exercise that tracks reps.");
+  const ref = await get(
+    db, `SELECT id, date FROM log_exercise WHERE exercise_id = ? AND date < ? AND ${NOT_DELOAD} ORDER BY date DESC, position DESC LIMIT 1`,
+    [entry.exercise.id, entry.date],
+  );
+  if (!ref) return null;
+  const prevSets = await db.all("SELECT * FROM log_set WHERE log_exercise_id = ? ORDER BY position", [ref.id]);
+  for (const [n, s] of entry.sets.entries()) {
+    if (!prevSets[n]) break;
+    if (s.completed_at !== null) continue;
+    const plan = { reps_min: s.target_reps_min, reps_max: s.target_reps_max, is_amrap: s.target_amrap, weight: s.target_weight };
+    const t = nextTargets(prevSets[n] as PreviousSet, plan, entry.exercise.tracks.weight);
+    const updates: [string, number | null][] = [];
+    if (s.reps === null) updates.push(["target_reps", t.reps]);
+    if (s.weight === null) updates.push(["target_weight", t.weight]);
+    if (updates.length) {
+      await db.run(`UPDATE log_set SET ${updates.map(([f]) => `${f} = ?`).join(", ")} WHERE id = ?`, [...updates.map(([, v]) => v), s.id]);
+    }
+  }
+  return ref.date;
 }
 
 /** Adds a set after the last one, copying its targets. */

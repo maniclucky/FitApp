@@ -17,3 +17,25 @@ export function setQuickFill(on: boolean) {
     /* storage unavailable: the setting lasts until the app reloads */
   }
 }
+
+const AUTOREGULATE = "fitapp.autoregulate";
+
+/**
+ * Autoregulation (user requirement, 2026-10-10): sets rep and weight targets from the last session
+ * when routines, workouts or exercises are added to a day. Off by default. Replaces the old
+ * per-routine switch (routine.autoregulate is kept in the data but no longer read).
+ */
+export function autoregulateOn(): boolean {
+  try {
+    return localStorage.getItem(AUTOREGULATE) === "on";
+  } catch {
+    return false;
+  }
+}
+export function setAutoregulate(on: boolean) {
+  try {
+    localStorage.setItem(AUTOREGULATE, on ? "on" : "off");
+  } catch {
+    /* storage unavailable: the setting lasts until the app reloads */
+  }
+}

@@ -112,8 +112,8 @@ async function routineForm(ctx: Ctx, routine: Routine | null) {
           <p class="hint">In the order you do them. A workout can appear more than once. Long-press a workout to drag it into a new order.</p>
           <ol class="builder-list" id="routine-list"></ol>
           <p class="empty small" id="routine-empty">No workouts yet. Tap <strong>+ Add</strong> to pick some.</p>
-          <!-- The Autoregulation switch is hidden for now (user request; it moves to the settings
-               rework). This keeps the routine's saved value through edits and copies. -->
+          <!-- Autoregulation is now one switch in Settings (2026-10-10), not per routine. This
+               hidden field only keeps routine.autoregulate's stored value through edits and copies. -->
           <input type="checkbox" id="autoregulate" name="autoregulate" hidden .checked=${autoregulate}>
         </div>
         <div class="field" role="tabpanel" id="panel-volume" aria-labelledby="tab-volume" hidden>
