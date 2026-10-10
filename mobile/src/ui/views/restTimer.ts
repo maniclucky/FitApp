@@ -1,4 +1,4 @@
-// Rest timer bar and its settings sheet on the day view (static/rest_timer.js).
+// Rest timer: the floating button on the day view, and its settings on the Settings screen (static/rest_timer.js).
 // State lives in localStorage so moving between days doesn't lose a running countdown; it's
 // a per-device preference, so browser storage is fine here. onSetCompleted() is called when a
 // set that qualifies is checked off (see restAfterSets for the superset rule).
@@ -11,12 +11,26 @@ const DEFAULTS = { duration: 90, auto: true, endsAt: null as number | null };
 const MIN = 15;
 const MAX = 600;
 
-export const restTimerSheet = () => html`
-  <dialog class="sheet" id="timer-sheet" aria-labelledby="timer-sheet-title">
-    <div class="sheet-head">
-      <h2 id="timer-sheet-title">Rest timer</h2>
-      <button type="button" class="button" data-close>Done</button>
-    </div>
+type TimerState = typeof DEFAULTS;
+function loadState(): TimerState {
+  try {
+    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || "{}") };
+  } catch {
+    return { ...DEFAULTS };
+  }
+}
+function saveState(state: TimerState) {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(state));
+  } catch {
+    /* storage unavailable: the timer still works while this screen is open */
+  }
+}
+
+// ---------- settings (on the Settings screen) ----------
+export const restTimerSettings = () => html`
+  <section class="card settings-card" id="timer-settings">
+    <h2>Rest timer</h2>
     <div class="stepper">
       <button type="button" class="icon-btn" data-step="-15" aria-label="15 seconds less">&minus;15s</button>
       <output id="timer-duration" aria-live="polite">1:30</output>
@@ -29,18 +43,49 @@ export const restTimerSheet = () => html`
       <input type="checkbox" id="timer-auto">
       <span>Start automatically when a set is completed</span>
     </label>
-    <p class="hint">In a superset, it starts only after the last exercise of each round.</p>
-  </dialog>`;
+    <p class="hint">In a superset, it starts only after the last exercise of each round. It never starts after the day's last set.</p>
+  </section>`;
 
+/** Each change re-reads the stored state, so a countdown that is already running is kept. */
+export function mountRestTimerSettings(root: HTMLElement, signal: AbortSignal) {
+  const card = root.querySelector<HTMLElement>("#timer-settings")!;
+  const durationOut = card.querySelector<HTMLOutputElement>("#timer-duration")!;
+  const autoBox = card.querySelector<HTMLInputElement>("#timer-auto")!;
+  const update = (change: (state: TimerState) => void) => {
+    const state = loadState();
+    change(state);
+    saveState(state);
+    render();
+  };
+  const render = () => {
+    const state = loadState();
+    durationOut.textContent = formatDuration(state.duration);
+    autoBox.checked = state.auto;
+  };
+  card.addEventListener("click", (e) => {
+    const t = e.target as Element;
+    const step = t.closest<HTMLElement>("[data-step]");
+    const preset = t.closest<HTMLElement>("[data-preset]");
+    if (step) update((st) => (st.duration = Math.min(MAX, Math.max(MIN, st.duration + Number(step.dataset.step)))));
+    else if (preset) update((st) => (st.duration = Number(preset.dataset.preset)));
+  }, { signal });
+  autoBox.addEventListener("change", () => update((st) => (st.auto = autoBox.checked)), { signal });
+  render();
+}
+
+const stopwatchIcon = html`<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none" stroke="currentColor"
+  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="14" r="7"/><path d="M12 14V10.5M10 3h4M12 3v4M18.5 7.5l1.5-1.5"/></svg>`;
+
+// Collapsed: a floating stopwatch button that starts the countdown. Running: expands to
+// -15 / countdown / +15; tapping the countdown stops it and collapses back.
 export const restTimerBar = () => html`
   <div class="timer" id="timer" data-state="idle">
-    <button type="button" class="timer-main" id="timer-main">
-      <span class="timer-label" id="timer-label">Rest</span>
+    <button type="button" class="timer-start" id="timer-start" aria-label="Start rest timer">${stopwatchIcon}</button>
+    <button type="button" class="icon-btn" data-adjust="-15" aria-label="15 seconds less">&minus;15</button>
+    <button type="button" class="timer-main" id="timer-main" aria-label="Stop rest timer">
       <span class="timer-time" id="timer-time">1:30</span>
     </button>
-    <button type="button" class="icon-btn running-only" data-adjust="-15" aria-label="15 seconds less">&minus;15</button>
-    <button type="button" class="icon-btn running-only" data-adjust="15" aria-label="15 seconds more">+15</button>
-    <button type="button" class="icon-btn" id="timer-settings" aria-label="Rest timer settings">&#9881;</button>
+    <button type="button" class="icon-btn" data-adjust="15" aria-label="15 seconds more">+15</button>
   </div>`;
 
 // Audio needs a prior user gesture; one shared context for the whole app.
@@ -70,13 +115,9 @@ function alarm() {
   }
 }
 
-export function mountRestTimer(root: HTMLElement, signal: AbortSignal): { onSetCompleted(): void } {
+export function mountRestTimer(root: HTMLElement, signal: AbortSignal): { onSetCompleted(): void; onDayFinished(): void } {
   const bar = root.querySelector<HTMLElement>("#timer")!;
-  const label = root.querySelector<HTMLElement>("#timer-label")!;
   const time = root.querySelector<HTMLElement>("#timer-time")!;
-  const sheet = root.querySelector<HTMLDialogElement>("#timer-sheet")!;
-  const durationOut = root.querySelector<HTMLOutputElement>("#timer-duration")!;
-  const autoBox = root.querySelector<HTMLInputElement>("#timer-auto")!;
   let tick: number | undefined;
   let doneTimer: number | undefined;
   signal.addEventListener("abort", () => {
@@ -84,36 +125,18 @@ export function mountRestTimer(root: HTMLElement, signal: AbortSignal): { onSetC
     clearTimeout(doneTimer);
   });
 
-  const load = () => {
-    try {
-      return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || "{}") };
-    } catch {
-      return { ...DEFAULTS };
-    }
-  };
-  let state = load();
-  const save = () => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(state));
-    } catch {
-      /* storage unavailable: the timer still works while this screen is open */
-    }
-  };
+  const state = loadState();
+  const save = () => saveState(state);
   const remaining = () => (state.endsAt ? Math.ceil((state.endsAt - Date.now()) / 1000) : null);
 
   function render() {
     const r = remaining();
     if (r != null && r > 0) {
       bar.dataset.state = "running";
-      label.textContent = "Resting · tap to stop";
       time.textContent = formatDuration(r);
     } else if (bar.dataset.state !== "done") {
       bar.dataset.state = "idle";
-      label.textContent = state.auto ? "Rest · auto-start on" : "Start rest";
-      time.textContent = formatDuration(state.duration);
     }
-    durationOut.textContent = formatDuration(state.duration);
-    autoBox.checked = state.auto;
   }
   function run() {
     clearInterval(tick);
@@ -145,7 +168,6 @@ export function mountRestTimer(root: HTMLElement, signal: AbortSignal): { onSetC
     state.endsAt = null;
     save();
     bar.dataset.state = "done";
-    label.textContent = "Rest over";
     time.textContent = "0:00";
     alarm();
     doneTimer = window.setTimeout(() => {
@@ -155,29 +177,16 @@ export function mountRestTimer(root: HTMLElement, signal: AbortSignal): { onSetC
   }
 
   document.addEventListener("pointerdown", unlockAudio, { signal });
-  root.querySelector("#timer-main")!.addEventListener("click", () => (bar.dataset.state === "running" ? stop() : start()), { signal });
+  root.querySelector("#timer-start")!.addEventListener("click", start, { signal });
+  root.querySelector("#timer-main")!.addEventListener("click", () => {
+    clearTimeout(doneTimer);
+    stop();
+  }, { signal });
   bar.addEventListener("click", (e) => {
     const btn = (e.target as Element).closest<HTMLElement>("[data-adjust]");
     if (!btn || !state.endsAt) return;
     state.endsAt += Number(btn.dataset.adjust) * 1000;
     if (remaining()! <= 0) return stop();
-    save();
-    render();
-  }, { signal });
-  root.querySelector("#timer-settings")!.addEventListener("click", () => sheet.showModal(), { signal });
-  sheet.addEventListener("click", (e) => {
-    const t = e.target as Element;
-    if (t === sheet || t.closest("[data-close]")) return sheet.close();
-    const step = t.closest<HTMLElement>("[data-step]");
-    const preset = t.closest<HTMLElement>("[data-preset]");
-    if (step) state.duration = Math.min(MAX, Math.max(MIN, state.duration + Number(step.dataset.step)));
-    else if (preset) state.duration = Number(preset.dataset.preset);
-    else return;
-    save();
-    render();
-  }, { signal });
-  autoBox.addEventListener("change", () => {
-    state.auto = autoBox.checked;
     save();
     render();
   }, { signal });
@@ -200,8 +209,13 @@ export function mountRestTimer(root: HTMLElement, signal: AbortSignal): { onSetC
     render();
   }
   return {
+    /** A qualifying set was completed and the day still has unfinished sets. */
     onSetCompleted() {
       if (state.auto) start();
+    },
+    /** The day's last unfinished set was completed: no rest needed, so stop any countdown. */
+    onDayFinished() {
+      if (state.endsAt) stop();
     },
   };
 }

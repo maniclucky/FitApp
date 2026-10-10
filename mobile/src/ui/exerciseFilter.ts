@@ -9,7 +9,10 @@ import type { PickerOption } from "../logic/exercises";
 export function filterControls(muscles: string[]) {
   return html`
     <div class="ex-filter" data-exercise-filter>
-      <input type="text" data-filter-search placeholder="Search exercises" aria-label="Search exercises" autocomplete="off">
+      <div class="search-box">
+        <input type="text" data-filter-search placeholder="Search exercises" aria-label="Search exercises" autocomplete="off">
+        <button type="button" class="search-clear" data-filter-clear aria-label="Clear search" hidden>&times;</button>
+      </div>
       <div class="ex-filter-row">
         <select data-filter-muscle aria-label="Filter by muscle">
           <option value="">All muscles</option>
@@ -42,8 +45,19 @@ export function exerciseFilter(root: HTMLElement, onChange: () => void, signal: 
   const muscle = root.querySelector<HTMLSelectElement>("[data-filter-muscle]")!;
   const roles = [...root.querySelectorAll<HTMLInputElement>("[data-filter-role]")];
   const primary = roles.find((r) => r.dataset.filterRole === "primary")!;
+  const clear = root.querySelector<HTMLButtonElement>("[data-filter-clear]")!;
+  const showClear = () => (clear.hidden = !search.value);
 
-  search.addEventListener("input", onChange, { signal });
+  search.addEventListener("input", () => {
+    showClear();
+    onChange();
+  }, { signal });
+  clear.addEventListener("click", () => {
+    search.value = "";
+    showClear();
+    search.focus();
+    onChange();
+  }, { signal });
   muscle.addEventListener("change", () => {
     for (const r of roles) {
       r.disabled = !muscle.value;
@@ -64,6 +78,7 @@ export function exerciseFilter(root: HTMLElement, onChange: () => void, signal: 
     },
     reset() {
       search.value = "";
+      showClear();
       muscle.value = "";
       for (const r of roles) {
         r.checked = false;
@@ -73,6 +88,7 @@ export function exerciseFilter(root: HTMLElement, onChange: () => void, signal: 
     state: () => ({ search: search.value, muscle: muscle.value, roles: roles.filter((r) => r.checked).map((r) => r.dataset.filterRole!) }),
     restore(state) {
       search.value = state.search;
+      showClear();
       // A muscle that no exercise uses any more isn't an option; fall back to "All muscles".
       muscle.value = [...muscle.options].some((o) => o.value === state.muscle) ? state.muscle : "";
       for (const r of roles) {

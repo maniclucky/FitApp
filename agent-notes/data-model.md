@@ -1,7 +1,7 @@
 # Data model
 The database schema, and the reasons behind the parts that aren't obvious.
 
-Last updated: 2026-09-30
+Last updated: 2026-10-10
 
 ## Tables (see `models.py`)
 - **exercise**: `name` (unique, case-insensitive via SQLite `NOCASE` collation) plus four booleans: `tracks_weight`, `tracks_reps`, `tracks_time`, `tracks_distance`. An exercise can track any combination of these, and must track at least one (checked by the form).
@@ -87,7 +87,7 @@ Last updated: 2026-09-30
 - Set results are formatted by the `set_result` filter using the exercise's *current* tracking modes, e.g. `135 lb × 8`, `50 lb · 0:45`, `25:00 · 3 mi`.
 
 ## Progress page (`/progress`, user requirement)
-- The date range comes from `?start=&end=`. The default and the "Month" preset are one calendar month back from today (`month_before`, which clamps Mar 31 → Feb 28), through today; there are also Week and 3-month presets. Ranges are at most 366 days, and a bad range flashes an error and falls back to the default.
+- The date range comes from `?start=&end=`. The default and the "Month" preset are one calendar month back from today (`month_before`, which clamps Mar 31 → Feb 28), through today; there are also Week and 3-month presets. Ranges are at most 366 days, and a bad range flashes an error and falls back to the default. **Mobile differs (user request, 2026-10-10):** its default is the past week (today and the 6 days before, same as the Week preset; `progressRange` in `mobile/src/logic/progress.ts`). The parity test passes Flask's month range explicitly for its no-dates step, so the numbers are still compared.
 - **Only completed (✓) sets count**, for both calculations:
   - **Volume per day** = sum of weight × reps over completed sets that have both values. Every day in the range is sent (zeros included) and drawn as an inline-SVG bar chart by `static/progress.js`, with a tooltip on hover/tap/←→ and a "Show as table" view.
   - **Sets per muscle group** use the routine weighting (`MUSCLE_SET_WEIGHTS`: primary 1, ancillary 0.5) with each exercise's *current* muscle links. Per week = total × 7 ÷ days in range. Every group is listed, zeros dimmed.
@@ -103,6 +103,7 @@ Last updated: 2026-09-30
 - **Long-press reorder (user requirement)**: holding a card for 400 ms (not on an input, button or link) lifts its whole block, so a superset moves as one. Other blocks slide aside and the page auto-scrolls near the screen edges. Dropping moves the DOM and saves the order without a reload (it reloads on error). While dragging, a non-passive `touchmove` listener calls preventDefault so the page doesn't scroll, and the swipe-to-change-day handler is suspended. Only verified with a mouse in desktop Firefox; touch behavior on a real phone is untested.
 - Swiping left or right (or pressing the ←/→ keys) moves one day. Swipes starting on an input, short swipes, and mostly-vertical swipes are ignored.
 - **Rest timer auto-start rule (user requirement):** outside a superset, completing any set starts it. In a superset, round n ends with the last member that has an nth set, so only that set starts it (`rest_after_sets` in `app.py` sets `data-rest` on each row). Un-completing never starts it.
+- **Mobile rest timer (user requirement, `mobile/src/ui/views/restTimer.ts`):** completing the day's last unfinished set never starts it, and stops a countdown that is already running (whether or not that set would normally start the timer). It's a floating stopwatch button at the bottom right. Tapping it starts the countdown and expands it to −15 / countdown / +15, and tapping the countdown stops it and collapses it again. Its duration and auto-start settings are on the **Settings** screen (`restTimerSettings`, 2026-10-10); each change there re-reads `fitapp.restTimer`, so a running countdown's `endsAt` isn't overwritten.
 - Timer state (duration, auto-start, `endsAt`) lives in localStorage (`fitapp.restTimer`) so it survives reloads and day swipes. It's per device by design. Known limit: browsers pause JS when the phone is locked, so the alarm (vibration plus beeps) only fires once the page is visible again. Reliable background alerts would need notifications, a PWA or a service worker.
 
 ## Demo data

@@ -1,5 +1,5 @@
-// Long-press to reorder a list (day view exercises, routine editor workouts). Press and hold an
-// item (not on an input, button or link) to lift it; the other items slide out of the way and
+// Long-press to reorder a list (day view exercises, routine editor workouts, workout builder). Press and hold an
+// item (not on an input, button or link, except a button marked data-drag-ok) to lift it; the other items slide out of the way and
 // the page auto-scrolls near the screen edges. Dropping calls onDrop(from, to) once the
 // transforms are cleared, and the caller moves the DOM or its data.
 //
@@ -36,6 +36,9 @@ export function longPressReorder(list: HTMLElement, o: ReorderOptions) {
   list.classList.add("reorder-list");
   let press: { item: HTMLElement; x: number; y: number; timer: number } | null = null;
   let drag: Drag | null = null;
+  // A drag ends with pointerup, which then clicks whatever is under the finger (e.g. a data-drag-ok
+  // button); that click is swallowed.
+  let swallowClicksUntil = 0;
 
   const cancelPress = () => {
     if (press) clearTimeout(press.timer);
@@ -97,6 +100,7 @@ export function longPressReorder(list: HTMLElement, o: ReorderOptions) {
   }
 
   function endDrag() {
+    swallowClicksUntil = Date.now() + 400;
     const { item, items, tops, heights, index, target, raf } = drag!;
     cancelAnimationFrame(raf);
     drag = null;
@@ -115,7 +119,7 @@ export function longPressReorder(list: HTMLElement, o: ReorderOptions) {
   }
 
   on(list, "pointerdown", (e: PointerEvent) => {
-    if (drag || !e.isPrimary || e.button !== 0 || (e.target as Element).closest("input, button, a, label")) return;
+    if (drag || !e.isPrimary || e.button !== 0 || (e.target as Element).closest("input, button:not([data-drag-ok]), a, label")) return;
     const item = o.items().find((it) => it.contains(e.target as Node));
     if (!item) return;
     cancelPress();
@@ -138,6 +142,12 @@ export function longPressReorder(list: HTMLElement, o: ReorderOptions) {
   on(document, "touchmove", (e: TouchEvent) => {
     if (drag && e.cancelable) e.preventDefault();
   }, { passive: false });
+  on(document, "click", (e: Event) => {
+    if (Date.now() < swallowClicksUntil) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, { capture: true });
   // Long-pressing shouldn't pop the phone's context menu.
   on(list, "contextmenu", (e: Event) => {
     if (press || drag) e.preventDefault();

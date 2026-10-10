@@ -32,7 +32,7 @@ export interface PreviousSet {
  * The next targets for one set, from the same set last time. `plan` gives the rep range and the
  * fallback weight; `tracksWeight` is false for exercises that only track reps.
  */
-export function nextTargets(prev: PreviousSet, plan: WorkoutSet, tracksWeight: boolean): SetTargets {
+export function nextTargets(prev: PreviousSet, plan: Pick<WorkoutSet, "reps_min" | "reps_max" | "is_amrap" | "weight">, tracksWeight: boolean): SetTargets {
   const { min, max } = repRange(plan);
   // Not checked off (or no reps typed): carry the previous targets forward unchanged.
   if (prev.completed_at === null || prev.reps === null) {
@@ -62,7 +62,7 @@ export async function setDeload(db: Db, date: string, on: boolean): Promise<void
   await db.run(on ? "INSERT OR IGNORE INTO deload_day (date) VALUES (?)" : "DELETE FROM deload_day WHERE date = ?", [date]);
 }
 
-const NOT_DELOAD = "date NOT IN (SELECT date FROM deload_day)";
+export const NOT_DELOAD = "date NOT IN (SELECT date FROM deload_day)";
 
 /**
  * Targets for every set of the workout's slots when it's loaded on `date`, or null for a set that

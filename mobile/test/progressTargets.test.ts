@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { exportBackup, importBackup } from "../src/db/backup";
 import { migrate, SCHEMA_VERSION } from "../src/db/schema";
 import { syncMuscleGroups } from "../src/logic/muscles";
-import { progressTargets, replaceProgressTargets, saveProgressTarget } from "../src/logic/progress";
+import { progressRange, progressTargets, replaceProgressTargets, saveProgressTarget } from "../src/logic/progress";
 import { openTestDb } from "./sqljs";
 
 async function freshDb() {
@@ -46,5 +46,12 @@ describe("progress targets", () => {
     const { progress_target: _, ...older } = backup.tables;
     await importBackup(other, { ...backup, schema: 1, tables: older });
     expect((await progressTargets(other)).size).toBe(0);
+  });
+});
+
+describe("progress range", () => {
+  it("defaults to the past week, ending today (user request)", () => {
+    expect(progressRange(null, null, "2026-10-10")).toEqual({ start: "2026-10-04", end: "2026-10-10", error: null });
+    expect(progressRange(null, "2026-03-03", "2026-10-10")).toEqual({ start: "2026-02-25", end: "2026-03-03", error: null });
   });
 });

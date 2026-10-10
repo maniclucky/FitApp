@@ -8,11 +8,11 @@ import { syncMuscleGroups } from "./logic/muscles";
 import { seedDefaultPresets } from "./logic/presets";
 import { start } from "./ui/app";
 import { initBackButton, initWebApp } from "./ui/native";
-import "./ui/views/backup";
 import "./ui/views/day";
 import "./ui/views/exercises";
 import "./ui/views/progress";
 import "./ui/views/routines";
+import "./ui/views/settings";
 import "./ui/views/workouts";
 
 async function main() {

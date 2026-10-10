@@ -212,6 +212,9 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 }
 .tabbar > a[aria-current="page"], .tab-menu-btn[data-current] { color: var(--accent); box-shadow: inset 0 2px 0 var(--accent); }
 .tab-menu { position: relative; }
+.tabbar > a.tab-icon { flex: 0 0 64px; }
+/* The first menu opens from the left edge so it isn't cut off by the screen. */
+.tabbar > .tab-menu:first-child .tab-menu-list { left: 8px; transform: none; }
 .tab-menu-list {
   position: absolute;
   bottom: calc(100% + 8px);
@@ -398,6 +401,9 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .mini-toggle input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .mini-toggle input:focus-visible + span { outline: 2px solid var(--text); outline-offset: 2px; }
 
+.wx-block-items { list-style: none; margin: 0; padding: 0; }
+.wx-head, .wx-title, .set-hint, .set-head { -webkit-user-select: none; user-select: none; }
+.wx-card { -webkit-touch-callout: none; }
 .superset-link { display: flex; justify-content: center; margin: -4px 0 8px; }
 .superset-link.on { margin: 0; background: none; }
 .superset-link.on + .wx-card { border-top-style: dashed; }
@@ -577,6 +583,19 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 }
 .log-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
 .log-head h2 { margin: 0; font-size: 1.05rem; }
+/* The exercise name opens its history (and long-pressing it still lifts the card). */
+.log-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.log-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .log-source { font-size: 0.8rem; color: var(--muted); }
 
 .log-grid { display: flex; flex-direction: column; gap: 6px; }
@@ -610,7 +629,7 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 }
 .check[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .check:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
-.log-actions { display: flex; gap: 8px; margin-top: 10px; }
+.log-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .button:disabled { opacity: 0.4; cursor: default; }
 
 .day-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
@@ -648,48 +667,43 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .dot:first-child { margin-left: 0; }
 .cal-legend { margin: 0; font-size: 0.8rem; color: var(--muted); text-align: center; }
 
-/* Rest timer bar (sits above the tab bar) */
+/* Rest timer: a floating button bottom right (above the tab bar) that expands while counting down */
 .timer {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(52px + var(--inset-bottom));
-  width: min(448px, calc(100% - 32px));
+  right: max(16px, calc((100% - 480px) / 2 + 16px));
+  bottom: calc(64px + var(--inset-bottom));
   display: flex;
   gap: 6px;
   align-items: center;
   padding: 6px;
-  border-radius: 16px;
+  border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
   z-index: 9;
 }
-.timer-main {
-  flex: 1;
-  min-width: 0;
-  min-height: 48px;
+.timer-start, .timer-main {
+  min-height: 52px;
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 999px;
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
   cursor: pointer;
 }
-.timer-label { font-size: 0.85rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timer-start { width: 52px; padding: 0; color: var(--accent); }
+.timer-main { min-width: 88px; padding: 0 14px; }
 .timer-time { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.timer .icon-btn { min-height: 48px; font-size: 0.9rem; }
-.timer .running-only { display: none; }
-.timer[data-state="running"] .running-only { display: block; }
+.timer .icon-btn { min-height: 48px; font-size: 0.9rem; border-radius: 999px; }
+.timer[data-state="idle"] > :not(.timer-start),
+.timer:not([data-state="idle"]) .timer-start { display: none; }
+.timer[data-state="done"] .icon-btn { display: none; }
 .timer[data-state="running"] .timer-main { background: color-mix(in srgb, var(--accent) 22%, var(--surface-2)); }
 .timer[data-state="running"] .timer-time { color: var(--accent); }
 .timer[data-state="done"] .timer-main { background: var(--accent); color: var(--accent-text); animation: pulse 0.8s ease-in-out 3; }
-.timer[data-state="done"] .timer-label { color: var(--accent-text); }
 @keyframes pulse { 50% { transform: scale(1.03); } }
 
 .stepper { display: grid; grid-template-columns: 72px 1fr 72px; align-items: center; text-align: center; }
@@ -758,11 +772,11 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 }
 .picker-list.multi [aria-checked="true"] .pick-box { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 
-/* Long-press reorder (day view) */
+/* Long-press reorder (day view, workout builder) */
 .reorder-hint { text-align: center; font-size: 0.8rem; margin: 0 0 4px; }
 .log-head, .log-labels, .set-num, .log-block .superset-tag { -webkit-user-select: none; user-select: none; }
 .log-card { -webkit-touch-callout: none; }
-/* ui/dragReorder.ts (day view and routine editor) */
+/* ui/dragReorder.ts (day view, routine editor, workout builder) */
 .reorder-list > * { transition: transform 0.16s ease-out; }
 .reorder-list.no-anim > * { transition: none; }
 .reorder-list > .dragging { position: relative; z-index: 5; transition: none; }
@@ -779,6 +793,15 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .log-list.collapsed .log-source { display: none; }
 .log-list.collapsed .log-head { margin: 0; }
 .log-list.collapsed .log-head h2 { margin: 0; }
+.builder-list .wx-block.dragging .wx-card {
+  border-color: var(--accent);
+  box-shadow: 0 14px 32px rgb(0 0 0 / 0.55);
+}
+.builder-list.collapsed .wx-card > :not(.wx-head),
+.builder-list.collapsed .wx-actions,
+.builder-list.collapsed .wx-title .badges,
+.builder-list.collapsed .superset-link { display: none; }
+.builder-list.collapsed .wx-title h3 { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   .reorder-list > *, .reorder-list > .dragging.settling { transition: none; }
 }
@@ -786,6 +809,23 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 /* Exercise search + muscle filter */
 .ex-filter { display: flex; flex-direction: column; gap: 8px; }
 .list-filter { margin-bottom: 16px; }
+.search-box { position: relative; }
+.search-box input { width: 100%; padding-right: 44px; }
+.search-clear {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
 .ex-filter-row { display: flex; gap: 6px; align-items: center; }
 .ex-filter select {
   flex: 1;
@@ -884,7 +924,8 @@ textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   color: var(--muted);
 }
 .log-notes { margin: -2px 0 10px; }
-.log-actions .notes-btn { margin-left: auto; }
+/* History and Notes stay together on the right; on a narrow card they wrap to a second line as a pair. */
+.log-actions-end { display: flex; gap: 8px; margin-left: auto; }
 .superset-btn { display: inline-flex; align-items: center; gap: 2px; padding: 0 10px; }
 .superset-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .history-day .note { margin: 2px 0 6px; }
@@ -957,7 +998,11 @@ textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .table-view a { color: var(--text); }
 
 /* Backup screen (mobile app) */
-.backup-card { margin-bottom: 12px; }
+.backup-card, .settings-card { margin-bottom: 12px; }
+.settings-card { display: flex; flex-direction: column; gap: 12px; }
+.settings-card h2 { margin: 0; }
+.settings-card .hint { margin: 0; }
+.settings-heading { margin: 24px 0 12px; }
 .backup-card h2 { margin-bottom: 4px; }
 .backup-card .hint { margin: 0 0 12px; }
 .file-button { cursor: pointer; }

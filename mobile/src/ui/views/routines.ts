@@ -10,7 +10,7 @@ import {
 import { formatNumber, MUSCLE_SET_WEIGHTS, truncate1 } from "../../logic/text";
 import { listWorkouts, workoutMuscleSets } from "../../logic/workouts";
 import { type Ctx, currentPath, flash, href, navigate, refresh, route, stash, takeStash } from "../app";
-import { cardCopyButton, copyHref, copyName } from "../copy";
+import { cardCopyButton, copyName } from "../copy";
 import { longPressReorder } from "../dragReorder";
 
 const ROUTINE_DELETE_DETAIL = "This removes the routine only. Its workouts and your logged days stay.";
@@ -95,7 +95,8 @@ async function routineForm(ctx: Ctx, routine: Routine | null) {
       <header class="page-header">
         <a class="back" href="#/routines" aria-label="Back to routines">&larr;</a>
         <h1>${routine ? "Edit routine" : "New routine"}</h1>
-        ${routine ? html`<a class="button subtle" href=${copyHref("routines", routine.id)}>Copy</a>` : ""}
+        <button type="button" class="button subtle" id="open-picker">+ Add</button>
+        <button type="submit" class="button" form="routine-form">Save</button>
       </header>
       ${errors.length ? html`<div class="errors" role="alert"><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ""}
       <form class="form" id="routine-form" novalidate>
@@ -110,15 +111,10 @@ async function routineForm(ctx: Ctx, routine: Routine | null) {
         <div class="field" role="tabpanel" id="panel-workouts" aria-labelledby="tab-workouts">
           <p class="hint">In the order you do them. A workout can appear more than once. Long-press a workout to drag it into a new order.</p>
           <ol class="builder-list" id="routine-list"></ol>
-          <p class="empty small" id="routine-empty">No workouts yet.</p>
-          <button type="button" class="button subtle block" id="open-picker">+ Add workout</button>
-          <label class="switch">
-            <input type="checkbox" id="autoregulate" name="autoregulate" .checked=${autoregulate}>
-            <span>Autoregulation</span>
-          </label>
-          <p class="hint">Sets each workout’s rep and weight targets from the last time you did it: one more rep
-            if you hit the target, +5&nbsp;lb past the top of the rep range, −5&nbsp;lb below the bottom
-            (8–15 when a set has no range). Deload days are skipped.</p>
+          <p class="empty small" id="routine-empty">No workouts yet. Tap <strong>+ Add</strong> to pick some.</p>
+          <!-- Autoregulation is now one switch in Settings (2026-10-10), not per routine. This
+               hidden field only keeps routine.autoregulate's stored value through edits and copies. -->
+          <input type="checkbox" id="autoregulate" name="autoregulate" hidden .checked=${autoregulate}>
         </div>
         <div class="field" role="tabpanel" id="panel-volume" aria-labelledby="tab-volume" hidden>
           <div class="cycle-days">
@@ -151,7 +147,6 @@ async function routineForm(ctx: Ctx, routine: Routine | null) {
               </li>`)}
           </ul>
         </div>
-        <button type="submit" class="button block">Save routine</button>
       </form>
       ${routine ? html`
         <button type="button" class="button danger block delete-trigger" data-confirm-delete="routine:${routine.id}"

@@ -1,11 +1,13 @@
 # Autoregulation
-How an autoregulated routine sets rep and weight targets from the previous session, and how deload days fit in. Mobile app only (`mobile/src/logic/autoregulation.ts`), not in Flask.
+How autoregulation sets rep and weight targets from the previous session, and how deload days fit in. Mobile app only (`mobile/src/logic/autoregulation.ts`), not in Flask.
 
-Last updated: 2026-10-04
+Last updated: 2026-10-10
 
 ## Rules (user requirement, 2026-10-04)
-- The routine editor's **Autoregulation** checkbox (Workouts tab) saves `routine.autoregulate`. Copy and the preset-page draft carry it.
-- It applies only when a workout is loaded **through that routine** (`loadRoutine`, including the ↻ override). Loading from the Workouts tab never autoregulates, but such a session still counts as a reference.
+- **One switch in Settings (user requirement, 2026-10-10):** **Autoregulation** on the Settings screen, per device (`fitapp.autoregulate` in localStorage via `ui/prefs.ts`, off by default). The day view passes it to `loadRoutine` / `loadWorkout` / `addExercises` as an `autoregulate` argument (default false, so the logic stays Flask-parity when off). It replaced the per-routine checkbox: `routine.autoregulate` is still stored, imported and exported, and kept through edits by a hidden field in the routine editor, but nothing reads it.
+- What it does depends on how things are added to a day:
+  - **Routine** (including the ↻ override) and **workout** (Workouts tab): the workout's own latest non-deload session, whatever its source (see below). Same rule for both.
+  - **Exercises** added on their own: each exercise's own last session, the same as the AR button (below).
 - For each set, using the same set position last time: actual reps `r`, weight `w` (actual, else that set's target weight, else the plan's), previous rep target `t` (`log_set.target_reps`, else the range minimum). The range is the plan's, and a blank end defaults to **8–15** (`repRange`).
   1. `r < min` → weight `w − 5` (never below 0), reps `min`.
   2. Otherwise next = `r + 1` if `r ≥ t` (actual + 1, user-confirmed), else `r`.
@@ -15,6 +17,12 @@ Last updated: 2026-10-04
 - Not adjusted (plan targets kept): exercises that don't track reps, and sets with no matching set last time (e.g. a set added to the plan).
 - Bodyweight (no weight logged or targeted, or the exercise doesn't track weight): reps only, held at the range maximum instead of adding weight. The user didn't rule on this case explicitly.
 
+## AR button on day cards (user requirement, 2026-10-10)
+- Each day card for an exercise that tracks reps has an **AR** button in its header (History became a tap on the exercise name). It sets that entry's targets by the rules above (`autoregulateEntry` in `logic/day.ts`), from the **exercise's** latest non-deload entry before that day, from any source (ad hoc or a workout; the workout doesn't matter). Sets match by position.
+- It sets **targets only** (`target_reps`, `target_weight`, shown as placeholders), never logged values; the user chose this over filling the fields.
+- **Completed sets are skipped, and so is each target whose field already has a value** (user requirement): a typed weight keeps that set's weight target, but its reps target still updates.
+- The range is the set's own target range, 8–15 when it has none (an ad-hoc exercise). Sets past the reference's count keep their targets. No earlier entry → nothing changes and a toast says so. Works on any day, whether or not the Settings switch is on, and **replaces** existing targets (e.g. ones a workout's autoregulation set) with the exercise-based ones (user requirement).
+
 ## Which session is the reference
 - The latest **non-deload** date before the load date on which that workout was logged, from **any source** (`log_exercise.workout_id`).
 - No such date → the first use; the plan is loaded unchanged, even if the exercises have history elsewhere.
@@ -22,7 +30,7 @@ Last updated: 2026-10-04
 - A slot whose exercise wasn't in that session (a **replaced** exercise) falls back to that exercise's latest earlier non-deload entry from any source (user requirement). No history → plan targets.
 
 ## Storage (schema v3)
-- `routine.autoregulate` (bool, default 0), `log_set.target_reps` (the single rep target; NULL when not autoregulated), and `deload_day (date PK)`.
+- `routine.autoregulate` (bool, default 0; no longer read since 2026-10-10), `log_set.target_reps` (the single rep target; NULL when not autoregulated), and `deload_day (date PK)`.
 - The reps placeholder shows `target_reps` when set (`target_label`), and the card's Reps label shows each distinct range of its autoregulated sets beneath it, in set order (e.g. `8–12 · AMRAP`). "+ Set" copies `target_reps` like the other targets.
 
 ## Deload days (user requirement)

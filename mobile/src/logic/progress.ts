@@ -5,11 +5,11 @@ import { addDays, daysBetween, monthBefore, MUSCLE_SET_WEIGHTS, type MuscleRole,
 
 export const PROGRESS_MAX_DAYS = 366;
 
-/** Validated range from optional start/end strings. Defaults to the past month, ending today. */
+/** Validated range from optional start/end strings. Defaults to the past week (7 days), ending today, like the "Week" preset. */
 export function progressRange(start: string | null, end: string | null, today: string): { start: string; end: string; error: string | null } {
   const e = end ? end : today;
-  const s = start ? start : parseIsoDate(e) ? monthBefore(e) : "";
-  if (!parseIsoDate(e) || !parseIsoDate(s)) return { start: monthBefore(today), end: today, error: "Dates should look like 2026-09-30." };
+  const s = start ? start : parseIsoDate(e) ? addDays(e, -6) : "";
+  if (!parseIsoDate(e) || !parseIsoDate(s)) return { start: addDays(today, -6), end: today, error: "Dates should look like 2026-09-30." };
   if (s > e) return { start: s, end: e, error: "The start date is after the end date." };
   if (daysBetween(s, e) + 1 > PROGRESS_MAX_DAYS) return { start: s, end: e, error: `Pick a range of at most ${PROGRESS_MAX_DAYS} days.` };
   return { start: s, end: e, error: null };

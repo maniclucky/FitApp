@@ -12,13 +12,15 @@ import {
   addDays, dayTitle, formatDuration, formatNumber, historyDate, NOTE_MAX_LENGTH, parseIsoDate, type TrackingMode,
 } from "../../logic/text";
 import { groupBlocks, listWorkouts } from "../../logic/workouts";
-import { type Ctx, flash, href, navigate, refresh, route } from "../app";
+import { type Ctx, currentPath, flash, href, navigate, refresh, route } from "../app";
 import { exerciseFilter, filterControls } from "../exerciseFilter";
 import { longPressReorder } from "../dragReorder";
 import { formatTime, parseTime } from "../time";
 import { historyList } from "./history";
 import { tapHaptic } from "../native";
-import { mountRestTimer, restTimerBar, restTimerSheet } from "./restTimer";
+import { autoregulateOn, quickFillOn } from "../prefs";
+import { takeCreatedExercises } from "./exercises";
+import { mountRestTimer, restTimerBar } from "./restTimer";
 
 // How each tracking mode appears as a column.
 const FIELDS: Record<TrackingMode, { field: keyof LogSet; label: string; inputmode: string }> = {
@@ -56,6 +58,7 @@ async function dayView(ctx: Ctx, date: string) {
   const { options, muscles } = await exercisePickerData(db);
   const nExercises = entries.length;
   const dayLabel = isToday ? "today" : historyDate(date, today);
+  const newExercise = href("/exercises/new", { next: `#${currentPath()}` });
 
   for (const lx of entries) {
     ctx.onDelete(`entry:${lx.id}`, async () => {
@@ -121,11 +124,14 @@ async function dayView(ctx: Ctx, date: string) {
     <section class="log-card" id="lx-${lx.id}" data-lx=${lx.id}>
       <div class="log-head">
         <div>
-          <h2>${lx.exercise.name}</h2>
+          <h2><button type="button" class="log-name" data-history=${lx.exercise.id} data-name=${lx.exercise.name} data-drag-ok
+                      aria-haspopup="dialog" title="Show history">${lx.exercise.name}</button></h2>
           ${lx.workout_name ? html`<span class="log-source">${lx.workout_name}</span>` : ""}
         </div>
         <div class="log-head-actions">
-          <button type="button" class="button subtle small" data-history=${lx.exercise.id} data-name=${lx.exercise.name}>History</button>
+          ${lx.exercise.tracks.reps ? html`
+            <button type="button" class="button subtle small" data-ar=${lx.id}
+                    aria-label="Autoregulate ${lx.exercise.name} from its last session">AR</button>` : ""}
           <button type="button" class="icon-btn danger" aria-label="Remove ${lx.exercise.name}"
                   data-confirm-delete="entry:${lx.id}" data-name=${lx.exercise.name}
                   data-detail="Removes it and its sets from this day.">&times;</button>
@@ -146,8 +152,10 @@ async function dayView(ctx: Ctx, date: string) {
         <button type="button" class="button subtle small" data-act="add-set" data-lx=${lx.id}>+ Set</button>
         <button type="button" class="button subtle small" data-act="remove-set" data-lx=${lx.id} ?disabled=${lx.sets.length === 1}>&minus; Set</button>
         ${supersetButton(lx)}
-        <button type="button" class="button subtle small notes-btn" data-notes=${lx.id} data-name=${lx.exercise.name}
+        <div class="log-actions-end">
+          <button type="button" class="button subtle small" data-notes=${lx.id} data-name=${lx.exercise.name}
                 data-exercise-note=${lx.exercise.note ?? ""} data-session-note=${lx.note ?? ""}>Notes</button>
+        </div>
       </div>
     </section>`;
 
@@ -195,7 +203,8 @@ async function dayView(ctx: Ctx, date: string) {
       <dialog class="sheet add-sheet" id="add-sheet" aria-labelledby="add-sheet-title">
         <div class="sheet-head">
           <h2 id="add-sheet-title">Add to ${isToday ? "today" : "this day"}</h2>
-          <button type="button" class="button subtle" data-close>Cancel</button>
+          <a class="button subtle" href=${newExercise} id="new-exercise" data-leave hidden>+ New</a>
+          <button type="button" class="button" data-close>Done</button>
         </div>
         <div class="segmented" role="tablist" aria-label="What to add">
           ${[["routines", "Routines"], ["workouts", "Workouts"], ["exercises", "Exercises"]].map(([key, label]) => html`
@@ -249,7 +258,7 @@ async function dayView(ctx: Ctx, date: string) {
             <ul class="picker-list multi" id="exercise-list"></ul>
             <p class="empty small" id="exercise-none" hidden>No matches.</p>
             <button type="button" class="button block" id="add-exercises" disabled>Select exercises</button>` : html`
-            <p class="empty small">No exercises yet. <a href="#/exercises/new">Create one first</a>.</p>`}
+            <p class="empty small">No exercises yet. <a href=${newExercise} data-leave>Create one first</a>.</p>`}
         </div>
       </dialog>
 
@@ -298,15 +307,19 @@ async function dayView(ctx: Ctx, date: string) {
         </div>
       </dialog>
 
-      ${restTimerSheet()}
       ${restTimerBar()}
       <div class="toast" id="toast" role="status" hidden></div>`,
     mount(root: HTMLElement, signal: AbortSignal) {
       const timer = mountRestTimer(root, signal);
-      mountDay(root, signal, ctx, { date, prev, next, options, summaries, onSetCompleted: timer.onSetCompleted });
+      mountDay(root, signal, ctx, { date, prev, next, options, summaries, onSetCompleted: timer.onSetCompleted, onDayFinished: timer.onDayFinished });
     },
   };
 }
+
+// "+ New" in the add sheet leaves for the exercise form (?next= back to this day). The picks
+// made so far wait here, keyed by the day's route; on return the sheet reopens on Exercises
+// with them still selected, plus every exercise saved on the way.
+const pickDrafts = new Map<string, number[]>();
 
 // Direction of the last swipe/arrow navigation, so the next day slides in from that side.
 let enterFrom: "next" | "prev" | null = null;
@@ -315,7 +328,7 @@ type Summaries = Record<number, { name: string; blocks: { name: string; sets: nu
 
 function mountDay(
   root: HTMLElement, signal: AbortSignal, ctx: Ctx,
-  o: { date: string; prev: string; next: string; options: PickerOption[]; summaries: Summaries; onSetCompleted: () => void },
+  o: { date: string; prev: string; next: string; options: PickerOption[]; summaries: Summaries; onSetCompleted: () => void; onDayFinished: () => void },
 ) {
   const { db } = ctx;
   const dayEl = root.querySelector<HTMLElement>("#day")!;
@@ -388,7 +401,8 @@ function mountDay(
   // column on its later sets that are empty and not checked off, and saved with it. After that
   // the column counts as filled and every set is edited on its own. A column that already has a
   // value anywhere (e.g. after a reload) is filled from the start.
-  const AUTOFILL = ["weight", "reps"];
+  // Settings can turn it off (Quick fill, ui/prefs.ts).
+  const AUTOFILL = quickFillOn() ? ["weight", "reps"] : [];
   const filled = new Set<string>(); // `${lx}:${field}`
   for (const input of dayEl.querySelectorAll<HTMLInputElement>("input[data-field]")) {
     if (input.value) filled.add(`${input.closest<HTMLElement>("[data-lx]")!.dataset.lx}:${input.dataset.field}`);
@@ -453,7 +467,8 @@ function mountDay(
       const data = await day.updateSet(db, Number(row.dataset.set), body);
       applySet(row, data);
       if (data.completed) tapHaptic();
-      if (data.completed && row.dataset.rest === "1") o.onSetCompleted();
+      if (data.completed && !dayEl.querySelector("[data-set]:not(.done)")) o.onDayFinished();
+      else if (data.completed && row.dataset.rest === "1") o.onSetCompleted();
     } catch (err) {
       toast((err as Error).message);
     } finally {
@@ -524,6 +539,8 @@ function mountDay(
       tab.tabIndex = onTab ? 0 : -1;
       addSheet.querySelector<HTMLElement>(`#panel-${tab.dataset.tab}`)!.hidden = !onTab;
     }
+    // "+ New" (a new exercise) only belongs to the Exercises tab.
+    addSheet.querySelector<HTMLElement>("#new-exercise")!.hidden = key !== "exercises";
     try {
       localStorage.setItem(TAB_KEY, key);
     } catch {
@@ -548,6 +565,10 @@ function mountDay(
   const exNone = root.querySelector<HTMLElement>("#exercise-none");
   const exAdd = root.querySelector<HTMLButtonElement>("#add-exercises");
   const selected: number[] = []; // exercise ids, in the order they were picked
+  const here = `#${currentPath()}`;
+  on(addSheet, "click", (e: Event) => {
+    if ((e.target as Element).closest("[data-leave]")) pickDrafts.set(here, [...selected]);
+  });
 
   on(root.querySelector("#open-add")!, "click", () => {
     let key: string | null = null;
@@ -615,8 +636,8 @@ function mountDay(
     const id = Number(item.dataset.id);
     btn.disabled = true;
     try {
-      if (item.dataset.kind === "routines") await day.loadRoutine(db, o.date, id, Number(item.dataset.index));
-      else await day.loadWorkout(db, o.date, id);
+      if (item.dataset.kind === "routines") await day.loadRoutine(db, o.date, id, Number(item.dataset.index), autoregulateOn());
+      else await day.loadWorkout(db, o.date, id, autoregulateOn());
       addSheet.close();
       await refresh();
     } catch (err) {
@@ -654,7 +675,7 @@ function mountDay(
     on(exAdd, "click", async () => {
       exAdd.disabled = true;
       try {
-        await day.addExercises(db, o.date, [...selected]);
+        await day.addExercises(db, o.date, [...selected], autoregulateOn());
         addSheet.close();
         await refresh();
       } catch (err) {
@@ -663,6 +684,37 @@ function mountDay(
       }
     });
   }
+
+  // Back from "+ New": reopen the sheet with the earlier picks and the new exercises selected.
+  const draft = pickDrafts.get(here);
+  pickDrafts.delete(here);
+  const created = takeCreatedExercises(here);
+  if (exList && (draft || created.length)) {
+    const known = new Set(o.options.map((opt) => opt.id));
+    selected.splice(0, selected.length, ...new Set([...(draft ?? []), ...created].filter((id) => known.has(id))));
+    renderExercisePicker();
+    showTab("exercises");
+    addSheet.showModal();
+  }
+
+  // ---------- AR: autoregulated targets from the exercise's last non-deload session ----------
+  on(dayEl, "click", async (e: Event) => {
+    const btn = (e.target as Element).closest<HTMLButtonElement>("[data-ar]");
+    if (!btn) return;
+    btn.disabled = true;
+    try {
+      const from = await day.autoregulateEntry(db, Number(btn.dataset.ar));
+      if (!from) {
+        btn.disabled = false;
+        return toast("No earlier session of this exercise to go by (deload days don’t count).");
+      }
+      flash(`Targets set from ${historyDate(from, ctx.today)}.`);
+      await refresh();
+    } catch (err) {
+      btn.disabled = false;
+      toast((err as Error).message);
+    }
+  });
 
   // ---------- history sheet: this exercise's sessions before this day ----------
   const historySheet = root.querySelector<HTMLDialogElement>("#history-sheet")!;
