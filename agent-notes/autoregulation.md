@@ -18,7 +18,7 @@ Last updated: 2026-10-10
 - Bodyweight (no weight logged or targeted, or the exercise doesn't track weight): reps only, held at the range maximum instead of adding weight. The user didn't rule on this case explicitly.
 
 ## AR button on day cards (user requirement, 2026-10-10)
-- Each day card for an exercise that tracks reps has an **AR** button in its header (History moved down beside Notes). It sets that entry's targets by the rules above (`autoregulateEntry` in `logic/day.ts`), from the **exercise's** latest non-deload entry before that day, from any source (ad hoc or a workout; the workout doesn't matter). Sets match by position.
+- Each day card for an exercise that tracks reps has an **AR** button in its header (History became a tap on the exercise name). It sets that entry's targets by the rules above (`autoregulateEntry` in `logic/day.ts`), from the **exercise's** latest non-deload entry before that day, from any source (ad hoc or a workout; the workout doesn't matter). Sets match by position.
 - It sets **targets only** (`target_reps`, `target_weight`, shown as placeholders), never logged values; the user chose this over filling the fields.
 - **Completed sets are skipped, and so is each target whose field already has a value** (user requirement): a typed weight keeps that set's weight target, but its reps target still updates.
 - The range is the set's own target range, 8–15 when it has none (an ad-hoc exercise). Sets past the reference's count keep their targets. No earlier entry → nothing changes and a toast says so. Works on any day, whether or not the Settings switch is on, and **replaces** existing targets (e.g. ones a workout's autoregulation set) with the exercise-based ones (user requirement).

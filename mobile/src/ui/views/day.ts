@@ -124,7 +124,8 @@ async function dayView(ctx: Ctx, date: string) {
     <section class="log-card" id="lx-${lx.id}" data-lx=${lx.id}>
       <div class="log-head">
         <div>
-          <h2>${lx.exercise.name}</h2>
+          <h2><button type="button" class="log-name" data-history=${lx.exercise.id} data-name=${lx.exercise.name} data-drag-ok
+                      aria-haspopup="dialog" title="Show history">${lx.exercise.name}</button></h2>
           ${lx.workout_name ? html`<span class="log-source">${lx.workout_name}</span>` : ""}
         </div>
         <div class="log-head-actions">
@@ -152,7 +153,6 @@ async function dayView(ctx: Ctx, date: string) {
         <button type="button" class="button subtle small" data-act="remove-set" data-lx=${lx.id} ?disabled=${lx.sets.length === 1}>&minus; Set</button>
         ${supersetButton(lx)}
         <div class="log-actions-end">
-          <button type="button" class="button subtle small" data-history=${lx.exercise.id} data-name=${lx.exercise.name}>History</button>
           <button type="button" class="button subtle small" data-notes=${lx.id} data-name=${lx.exercise.name}
                 data-exercise-note=${lx.exercise.note ?? ""} data-session-note=${lx.note ?? ""}>Notes</button>
         </div>

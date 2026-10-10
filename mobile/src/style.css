@@ -583,6 +583,19 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 }
 .log-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
 .log-head h2 { margin: 0; font-size: 1.05rem; }
+/* The exercise name opens its history (and long-pressing it still lifts the card). */
+.log-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.log-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .log-source { font-size: 0.8rem; color: var(--muted); }
 
 .log-grid { display: flex; flex-direction: column; gap: 6px; }
