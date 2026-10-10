@@ -87,7 +87,7 @@ Last updated: 2026-10-10
 - Set results are formatted by the `set_result` filter using the exercise's *current* tracking modes, e.g. `135 lb × 8`, `50 lb · 0:45`, `25:00 · 3 mi`.
 
 ## Progress page (`/progress`, user requirement)
-- The date range comes from `?start=&end=`. The default and the "Month" preset are one calendar month back from today (`month_before`, which clamps Mar 31 → Feb 28), through today; there are also Week and 3-month presets. Ranges are at most 366 days, and a bad range flashes an error and falls back to the default.
+- The date range comes from `?start=&end=`. The default and the "Month" preset are one calendar month back from today (`month_before`, which clamps Mar 31 → Feb 28), through today; there are also Week and 3-month presets. Ranges are at most 366 days, and a bad range flashes an error and falls back to the default. **Mobile differs (user request, 2026-10-10):** its default is the past week (today and the 6 days before, same as the Week preset; `progressRange` in `mobile/src/logic/progress.ts`). The parity test passes Flask's month range explicitly for its no-dates step, so the numbers are still compared.
 - **Only completed (✓) sets count**, for both calculations:
   - **Volume per day** = sum of weight × reps over completed sets that have both values. Every day in the range is sent (zeros included) and drawn as an inline-SVG bar chart by `static/progress.js`, with a tooltip on hover/tap/←→ and a "Show as table" view.
   - **Sets per muscle group** use the routine weighting (`MUSCLE_SET_WEIGHTS`: primary 1, ancillary 0.5) with each exercise's *current* muscle links. Per week = total × 7 ÷ days in range. Every group is listed, zeros dimmed.

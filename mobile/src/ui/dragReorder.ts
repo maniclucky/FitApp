@@ -1,4 +1,4 @@
-// Long-press to reorder a list (day view exercises, routine editor workouts). Press and hold an
+// Long-press to reorder a list (day view exercises, routine editor workouts, workout builder). Press and hold an
 // item (not on an input, button or link) to lift it; the other items slide out of the way and
 // the page auto-scrolls near the screen edges. Dropping calls onDrop(from, to) once the
 // transforms are cleared, and the caller moves the DOM or its data.

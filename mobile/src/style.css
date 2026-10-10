@@ -398,6 +398,9 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .mini-toggle input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .mini-toggle input:focus-visible + span { outline: 2px solid var(--text); outline-offset: 2px; }
 
+.wx-block-items { list-style: none; margin: 0; padding: 0; }
+.wx-head, .wx-title, .set-hint, .set-head { -webkit-user-select: none; user-select: none; }
+.wx-card { -webkit-touch-callout: none; }
 .superset-link { display: flex; justify-content: center; margin: -4px 0 8px; }
 .superset-link.on { margin: 0; background: none; }
 .superset-link.on + .wx-card { border-top-style: dashed; }
@@ -753,11 +756,11 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 }
 .picker-list.multi [aria-checked="true"] .pick-box { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 
-/* Long-press reorder (day view) */
+/* Long-press reorder (day view, workout builder) */
 .reorder-hint { text-align: center; font-size: 0.8rem; margin: 0 0 4px; }
 .log-head, .log-labels, .set-num, .log-block .superset-tag { -webkit-user-select: none; user-select: none; }
 .log-card { -webkit-touch-callout: none; }
-/* ui/dragReorder.ts (day view and routine editor) */
+/* ui/dragReorder.ts (day view, routine editor, workout builder) */
 .reorder-list > * { transition: transform 0.16s ease-out; }
 .reorder-list.no-anim > * { transition: none; }
 .reorder-list > .dragging { position: relative; z-index: 5; transition: none; }
@@ -774,6 +777,15 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .log-list.collapsed .log-source { display: none; }
 .log-list.collapsed .log-head { margin: 0; }
 .log-list.collapsed .log-head h2 { margin: 0; }
+.builder-list .wx-block.dragging .wx-card {
+  border-color: var(--accent);
+  box-shadow: 0 14px 32px rgb(0 0 0 / 0.55);
+}
+.builder-list.collapsed .wx-card > :not(.wx-head),
+.builder-list.collapsed .wx-actions,
+.builder-list.collapsed .wx-title .badges,
+.builder-list.collapsed .superset-link { display: none; }
+.builder-list.collapsed .wx-title h3 { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   .reorder-list > *, .reorder-list > .dragging.settling { transition: none; }
 }
@@ -781,6 +793,23 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 /* Exercise search + muscle filter */
 .ex-filter { display: flex; flex-direction: column; gap: 8px; }
 .list-filter { margin-bottom: 16px; }
+.search-box { position: relative; }
+.search-box input { width: 100%; padding-right: 44px; }
+.search-clear {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
 .ex-filter-row { display: flex; gap: 6px; align-items: center; }
 .ex-filter select {
   flex: 1;

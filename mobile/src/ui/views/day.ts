@@ -12,12 +12,13 @@ import {
   addDays, dayTitle, formatDuration, formatNumber, historyDate, NOTE_MAX_LENGTH, parseIsoDate, type TrackingMode,
 } from "../../logic/text";
 import { groupBlocks, listWorkouts } from "../../logic/workouts";
-import { type Ctx, flash, href, navigate, refresh, route } from "../app";
+import { type Ctx, currentPath, flash, href, navigate, refresh, route } from "../app";
 import { exerciseFilter, filterControls } from "../exerciseFilter";
 import { longPressReorder } from "../dragReorder";
 import { formatTime, parseTime } from "../time";
 import { historyList } from "./history";
 import { tapHaptic } from "../native";
+import { takeCreatedExercises } from "./exercises";
 import { mountRestTimer, restTimerBar, restTimerSheet } from "./restTimer";
 
 // How each tracking mode appears as a column.
@@ -56,6 +57,7 @@ async function dayView(ctx: Ctx, date: string) {
   const { options, muscles } = await exercisePickerData(db);
   const nExercises = entries.length;
   const dayLabel = isToday ? "today" : historyDate(date, today);
+  const newExercise = href("/exercises/new", { next: `#${currentPath()}` });
 
   for (const lx of entries) {
     ctx.onDelete(`entry:${lx.id}`, async () => {
@@ -195,7 +197,8 @@ async function dayView(ctx: Ctx, date: string) {
       <dialog class="sheet add-sheet" id="add-sheet" aria-labelledby="add-sheet-title">
         <div class="sheet-head">
           <h2 id="add-sheet-title">Add to ${isToday ? "today" : "this day"}</h2>
-          <button type="button" class="button subtle" data-close>Cancel</button>
+          <a class="button subtle" href=${newExercise} id="new-exercise" data-leave hidden>+ New</a>
+          <button type="button" class="button" data-close>Done</button>
         </div>
         <div class="segmented" role="tablist" aria-label="What to add">
           ${[["routines", "Routines"], ["workouts", "Workouts"], ["exercises", "Exercises"]].map(([key, label]) => html`
@@ -249,7 +252,7 @@ async function dayView(ctx: Ctx, date: string) {
             <ul class="picker-list multi" id="exercise-list"></ul>
             <p class="empty small" id="exercise-none" hidden>No matches.</p>
             <button type="button" class="button block" id="add-exercises" disabled>Select exercises</button>` : html`
-            <p class="empty small">No exercises yet. <a href="#/exercises/new">Create one first</a>.</p>`}
+            <p class="empty small">No exercises yet. <a href=${newExercise} data-leave>Create one first</a>.</p>`}
         </div>
       </dialog>
 
@@ -307,6 +310,11 @@ async function dayView(ctx: Ctx, date: string) {
     },
   };
 }
+
+// "+ New" in the add sheet leaves for the exercise form (?next= back to this day). The picks
+// made so far wait here, keyed by the day's route; on return the sheet reopens on Exercises
+// with them still selected, plus every exercise saved on the way.
+const pickDrafts = new Map<string, number[]>();
 
 // Direction of the last swipe/arrow navigation, so the next day slides in from that side.
 let enterFrom: "next" | "prev" | null = null;
@@ -525,6 +533,8 @@ function mountDay(
       tab.tabIndex = onTab ? 0 : -1;
       addSheet.querySelector<HTMLElement>(`#panel-${tab.dataset.tab}`)!.hidden = !onTab;
     }
+    // "+ New" (a new exercise) only belongs to the Exercises tab.
+    addSheet.querySelector<HTMLElement>("#new-exercise")!.hidden = key !== "exercises";
     try {
       localStorage.setItem(TAB_KEY, key);
     } catch {
@@ -549,6 +559,10 @@ function mountDay(
   const exNone = root.querySelector<HTMLElement>("#exercise-none");
   const exAdd = root.querySelector<HTMLButtonElement>("#add-exercises");
   const selected: number[] = []; // exercise ids, in the order they were picked
+  const here = `#${currentPath()}`;
+  on(addSheet, "click", (e: Event) => {
+    if ((e.target as Element).closest("[data-leave]")) pickDrafts.set(here, [...selected]);
+  });
 
   on(root.querySelector("#open-add")!, "click", () => {
     let key: string | null = null;
@@ -663,6 +677,18 @@ function mountDay(
         toast((err as Error).message);
       }
     });
+  }
+
+  // Back from "+ New": reopen the sheet with the earlier picks and the new exercises selected.
+  const draft = pickDrafts.get(here);
+  pickDrafts.delete(here);
+  const created = takeCreatedExercises(here);
+  if (exList && (draft || created.length)) {
+    const known = new Set(o.options.map((opt) => opt.id));
+    selected.splice(0, selected.length, ...new Set([...(draft ?? []), ...created].filter((id) => known.has(id))));
+    renderExercisePicker();
+    showTab("exercises");
+    addSheet.showModal();
   }
 
   // ---------- history sheet: this exercise's sessions before this day ----------

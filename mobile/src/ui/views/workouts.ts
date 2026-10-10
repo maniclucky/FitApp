@@ -8,7 +8,8 @@ import {
   workoutToItems,
 } from "../../logic/workouts";
 import { type Ctx, currentPath, flash, href, navigate, refresh, returnTo, route, stash, takeStash } from "../app";
-import { cardCopyButton, copyHref, copyName } from "../copy";
+import { cardCopyButton, copyName } from "../copy";
+import { longPressReorder } from "../dragReorder";
 import { exerciseFilter, filterControls } from "../exerciseFilter";
 import { formatTime, parseTime } from "../time";
 import { takeCreatedExercises } from "./exercises";
@@ -98,7 +99,8 @@ async function builder(ctx: Ctx, workout: Workout | null) {
       <header class="page-header">
         <a class="back" href=${back} aria-label="Back">&larr;</a>
         <h1>${workout ? "Edit workout" : "New workout"}</h1>
-        ${workout ? html`<a class="button subtle" href=${copyHref("workouts", workout.id)}>Copy</a>` : ""}
+        <button type="button" class="button subtle" id="open-picker">+ Add</button>
+        <button type="submit" class="button" form="builder-form">Save</button>
       </header>
       ${errors.length ? html`<div class="errors" role="alert"><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ""}
       <form class="form" id="builder-form" novalidate>
@@ -108,11 +110,10 @@ async function builder(ctx: Ctx, workout: Workout | null) {
         </div>
         <div class="field">
           <span class="field-label">Exercises</span>
+          <p class="hint reorder-hint" id="builder-hint" hidden>Long-press an exercise to drag it into a new order.</p>
           <ol class="builder-list" id="builder-list"></ol>
-          <p class="empty small" id="builder-empty">No exercises yet.</p>
-          <button type="button" class="button subtle block" id="open-picker">+ Add exercise</button>
+          <p class="empty small" id="builder-empty">No exercises yet. Tap <strong>+ Add</strong> to pick some.</p>
         </div>
-        <button type="submit" class="button block">Save workout</button>
       </form>
       ${workout ? html`
         <button type="button" class="button danger block delete-trigger"
@@ -186,6 +187,7 @@ function mountBuilder(
 
   const list = root.querySelector<HTMLElement>("#builder-list")!;
   const empty = root.querySelector<HTMLElement>("#builder-empty")!;
+  const hint = root.querySelector<HTMLElement>("#builder-hint")!;
   const picker = root.querySelector<HTMLDialogElement>("#picker")!;
   const esc = (s: unknown) =>
     String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -248,8 +250,6 @@ function mountBuilder(
       <div class="wx-head">
         <div class="wx-title"><h3>${esc(ex.name)}</h3><div class="badges">${badges}</div></div>
         <div class="wx-actions">
-          <button type="button" class="icon-btn" data-act="up" data-i="${i}" aria-label="Move ${esc(ex.name)} up" ${i === 0 ? "disabled" : ""}>&uarr;</button>
-          <button type="button" class="icon-btn" data-act="down" data-i="${i}" aria-label="Move ${esc(ex.name)} down" ${i === items.length - 1 ? "disabled" : ""}>&darr;</button>
           <button type="button" class="icon-btn danger" data-act="remove" data-i="${i}" aria-label="Remove ${esc(ex.name)}">&times;</button>
         </div>
       </div>
@@ -272,9 +272,28 @@ function mountBuilder(
     </li>`;
   }
 
+  // Item index ranges [start, end) of each block: a superset chain, or a lone exercise.
+  function blockRanges() {
+    const ranges: [number, number][] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (i > 0 && items[i - 1].superset_next) ranges[ranges.length - 1][1] = i + 1;
+      else ranges.push([i, i + 1]);
+    }
+    return ranges;
+  }
+
+  // Each block is one draggable <li data-block>; the superset toggles between blocks sit
+  // between them as their own items.
   function render() {
-    list.innerHTML = items.map((item, i) => card(item, i) + (i < items.length - 1 ? link(i) : "")).join("");
+    const ranges = blockRanges();
+    list.innerHTML = ranges.map(([start, end], b) => {
+      const inner = [];
+      for (let i = start; i < end; i++) inner.push(card(items[i], i) + (i < end - 1 ? link(i) : ""));
+      return `<li class="wx-block" data-block><ol class="wx-block-items">${inner.join("")}</ol></li>`
+        + (b < ranges.length - 1 ? link(end - 1) : "");
+    }).join("");
     empty.hidden = items.length > 0;
+    hint.hidden = ranges.length < 2;
   }
 
   // A link after the last exercise is meaningless and would silently re-link whatever gets added next.
@@ -292,26 +311,32 @@ function mountBuilder(
     render();
   }
 
-  // Moving an exercise pulls it out of any superset; the user re-links where wanted.
-  function move(i: number, delta: number) {
-    const j = i + delta;
-    if (j < 0 || j >= items.length) return;
-    items[i].superset_next = false;
-    if (i > 0) items[i - 1].superset_next = false;
-    [items[i], items[j]] = [items[j], items[i]];
-    tidyLinks();
-    render();
-    const btn = list.querySelector<HTMLButtonElement>(`[data-act="${delta < 0 ? "up" : "down"}"][data-i="${j}"]`);
-    (btn && !btn.disabled ? btn : list.querySelector<HTMLButtonElement>(`[data-act="remove"][data-i="${j}"]`)!).focus();
-  }
+  // ----- Long-press to reorder (ui/dragReorder.ts), like the day view -----
+  // A superset moves as one block, and every card shrinks to its name while one is lifted.
+  const blockEls = () => [...list.querySelectorAll<HTMLElement>(":scope > [data-block]")];
+  longPressReorder(list, {
+    signal,
+    items: blockEls,
+    onLift: () => list.classList.add("collapsed"),
+    onDrop(from, to) {
+      if (to !== from) {
+        const blocks = blockRanges().map(([start, end]) => items.slice(start, end));
+        blocks.splice(to, 0, ...blocks.splice(from, 1));
+        items.splice(0, items.length, ...blocks.flat());
+        render();
+      }
+      // Expand the cards again, keeping the dropped block where it is on screen.
+      const before = blockEls()[to].getBoundingClientRect().top;
+      list.classList.remove("collapsed");
+      scrollBy(0, blockEls()[to].getBoundingClientRect().top - before);
+    },
+  });
 
   list.addEventListener("click", (e) => {
     const btn = (e.target as Element).closest<HTMLButtonElement>("button[data-act]");
     if (!btn) return;
     const i = Number(btn.dataset.i);
     switch (btn.dataset.act) {
-      case "up": return move(i, -1);
-      case "down": return move(i, 1);
       case "remove":
         // The exercise above stays linked only if the removed one was linked onward too.
         if (i > 0) items[i - 1].superset_next = items[i - 1].superset_next && items[i].superset_next;

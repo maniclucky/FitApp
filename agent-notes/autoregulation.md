@@ -1,10 +1,10 @@
 # Autoregulation
 How an autoregulated routine sets rep and weight targets from the previous session, and how deload days fit in. Mobile app only (`mobile/src/logic/autoregulation.ts`), not in Flask.
 
-Last updated: 2026-10-04
+Last updated: 2026-10-10
 
 ## Rules (user requirement, 2026-10-04)
-- The routine editor's **Autoregulation** checkbox (Workouts tab) saves `routine.autoregulate`. Copy and the preset-page draft carry it.
+- The routine editor's **Autoregulation** checkbox saves `routine.autoregulate`. Copy and the preset-page draft carry it. **Hidden since 2026-10-10 (user request):** it moves to the upcoming settings rework. Until then it's a `hidden` checkbox in the editor, so saves keep each routine's stored value, and autoregulation still runs for routines that had it on.
 - It applies only when a workout is loaded **through that routine** (`loadRoutine`, including the ↻ override). Loading from the Workouts tab never autoregulates, but such a session still counts as a reference.
 - For each set, using the same set position last time: actual reps `r`, weight `w` (actual, else that set's target weight, else the plan's), previous rep target `t` (`log_set.target_reps`, else the range minimum). The range is the plan's, and a blank end defaults to **8–15** (`repRange`).
   1. `r < min` → weight `w − 5` (never below 0), reps `min`.

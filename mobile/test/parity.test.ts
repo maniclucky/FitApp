@@ -13,7 +13,7 @@ import { exerciseHistory, setResult } from "../src/logic/history";
 import { deletePreset, savePreset } from "../src/logic/presets";
 import { progressData, progressRange } from "../src/logic/progress";
 import { deleteRoutine, getRoutine, routineNextIndex, saveRoutine } from "../src/logic/routines";
-import { formatVolume, truncate1, ValidationError } from "../src/logic/text";
+import { formatVolume, monthBefore, truncate1, ValidationError } from "../src/logic/text";
 import { deleteWorkout, groupBlocks, listWorkouts, saveWorkout, slotSummary, workoutDeleteBlocker } from "../src/logic/workouts";
 import { asFlaskRows, openTestDb } from "./sqljs";
 
@@ -123,7 +123,9 @@ async function run(db: Db, step: any, today: string): Promise<any> {
     case "read.progressRange":
       return { error: progressRange(s.start, s.end, today).error };
     case "read.progress": {
-      const range = progressRange(s.start, s.end, today);
+      // Flask defaults to the past month; the app now defaults to the past week (user request,
+      // see progressTargets.test.ts). Give the month explicitly so the numbers still match.
+      const range = progressRange(s.start ?? (s.end ? null : monthBefore(today)), s.end, today);
       const p = await progressData(db, range.start, range.end);
       return {
         days: p.days,
