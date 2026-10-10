@@ -1,7 +1,7 @@
 # Data model
 The database schema, and the reasons behind the parts that aren't obvious.
 
-Last updated: 2026-09-30
+Last updated: 2026-10-10
 
 ## Tables (see `models.py`)
 - **exercise**: `name` (unique, case-insensitive via SQLite `NOCASE` collation) plus four booleans: `tracks_weight`, `tracks_reps`, `tracks_time`, `tracks_distance`. An exercise can track any combination of these, and must track at least one (checked by the form).
@@ -103,6 +103,7 @@ Last updated: 2026-09-30
 - **Long-press reorder (user requirement)**: holding a card for 400 ms (not on an input, button or link) lifts its whole block, so a superset moves as one. Other blocks slide aside and the page auto-scrolls near the screen edges. Dropping moves the DOM and saves the order without a reload (it reloads on error). While dragging, a non-passive `touchmove` listener calls preventDefault so the page doesn't scroll, and the swipe-to-change-day handler is suspended. Only verified with a mouse in desktop Firefox; touch behavior on a real phone is untested.
 - Swiping left or right (or pressing the ←/→ keys) moves one day. Swipes starting on an input, short swipes, and mostly-vertical swipes are ignored.
 - **Rest timer auto-start rule (user requirement):** outside a superset, completing any set starts it. In a superset, round n ends with the last member that has an nth set, so only that set starts it (`rest_after_sets` in `app.py` sets `data-rest` on each row). Un-completing never starts it.
+- **Mobile rest timer (user requirement, `mobile/src/ui/views/restTimer.ts`):** completing the day's last unfinished set never starts it, and stops a countdown that is already running (whether or not that set would normally start the timer). It's a floating stopwatch button at the bottom right. Tapping it starts the countdown and expands it to −15 / countdown / +15, and tapping the countdown stops it and collapses it again. The settings sheet is still in the code but has no button for now (the user will rework it); the duration and auto-start values saved earlier in `fitapp.restTimer` still apply.
 - Timer state (duration, auto-start, `endsAt`) lives in localStorage (`fitapp.restTimer`) so it survives reloads and day swipes. It's per device by design. Known limit: browsers pause JS when the phone is locked, so the alarm (vibration plus beeps) only fires once the page is visible again. Reliable background alerts would need notifications, a PWA or a service worker.
 
 ## Demo data

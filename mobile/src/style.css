@@ -648,48 +648,43 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .dot:first-child { margin-left: 0; }
 .cal-legend { margin: 0; font-size: 0.8rem; color: var(--muted); text-align: center; }
 
-/* Rest timer bar (sits above the tab bar) */
+/* Rest timer: a floating button bottom right (above the tab bar) that expands while counting down */
 .timer {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(52px + var(--inset-bottom));
-  width: min(448px, calc(100% - 32px));
+  right: max(16px, calc((100% - 480px) / 2 + 16px));
+  bottom: calc(64px + var(--inset-bottom));
   display: flex;
   gap: 6px;
   align-items: center;
   padding: 6px;
-  border-radius: 16px;
+  border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
   z-index: 9;
 }
-.timer-main {
-  flex: 1;
-  min-width: 0;
-  min-height: 48px;
+.timer-start, .timer-main {
+  min-height: 52px;
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 999px;
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
   cursor: pointer;
 }
-.timer-label { font-size: 0.85rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timer-start { width: 52px; padding: 0; color: var(--accent); }
+.timer-main { min-width: 88px; padding: 0 14px; }
 .timer-time { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.timer .icon-btn { min-height: 48px; font-size: 0.9rem; }
-.timer .running-only { display: none; }
-.timer[data-state="running"] .running-only { display: block; }
+.timer .icon-btn { min-height: 48px; font-size: 0.9rem; border-radius: 999px; }
+.timer[data-state="idle"] > :not(.timer-start),
+.timer:not([data-state="idle"]) .timer-start { display: none; }
+.timer[data-state="done"] .icon-btn { display: none; }
 .timer[data-state="running"] .timer-main { background: color-mix(in srgb, var(--accent) 22%, var(--surface-2)); }
 .timer[data-state="running"] .timer-time { color: var(--accent); }
 .timer[data-state="done"] .timer-main { background: var(--accent); color: var(--accent-text); animation: pulse 0.8s ease-in-out 3; }
-.timer[data-state="done"] .timer-label { color: var(--accent-text); }
 @keyframes pulse { 50% { transform: scale(1.03); } }
 
 .stepper { display: grid; grid-template-columns: 72px 1fr 72px; align-items: center; text-align: center; }

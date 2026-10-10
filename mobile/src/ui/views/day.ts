@@ -303,7 +303,7 @@ async function dayView(ctx: Ctx, date: string) {
       <div class="toast" id="toast" role="status" hidden></div>`,
     mount(root: HTMLElement, signal: AbortSignal) {
       const timer = mountRestTimer(root, signal);
-      mountDay(root, signal, ctx, { date, prev, next, options, summaries, onSetCompleted: timer.onSetCompleted });
+      mountDay(root, signal, ctx, { date, prev, next, options, summaries, onSetCompleted: timer.onSetCompleted, onDayFinished: timer.onDayFinished });
     },
   };
 }
@@ -315,7 +315,7 @@ type Summaries = Record<number, { name: string; blocks: { name: string; sets: nu
 
 function mountDay(
   root: HTMLElement, signal: AbortSignal, ctx: Ctx,
-  o: { date: string; prev: string; next: string; options: PickerOption[]; summaries: Summaries; onSetCompleted: () => void },
+  o: { date: string; prev: string; next: string; options: PickerOption[]; summaries: Summaries; onSetCompleted: () => void; onDayFinished: () => void },
 ) {
   const { db } = ctx;
   const dayEl = root.querySelector<HTMLElement>("#day")!;
@@ -453,7 +453,8 @@ function mountDay(
       const data = await day.updateSet(db, Number(row.dataset.set), body);
       applySet(row, data);
       if (data.completed) tapHaptic();
-      if (data.completed && row.dataset.rest === "1") o.onSetCompleted();
+      if (data.completed && !dayEl.querySelector("[data-set]:not(.done)")) o.onDayFinished();
+      else if (data.completed && row.dataset.rest === "1") o.onSetCompleted();
     } catch (err) {
       toast((err as Error).message);
     } finally {
