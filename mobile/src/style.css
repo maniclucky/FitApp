@@ -212,6 +212,9 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 }
 .tabbar > a[aria-current="page"], .tab-menu-btn[data-current] { color: var(--accent); box-shadow: inset 0 2px 0 var(--accent); }
 .tab-menu { position: relative; }
+.tabbar > a.tab-icon { flex: 0 0 64px; }
+/* The first menu opens from the left edge so it isn't cut off by the screen. */
+.tabbar > .tab-menu:first-child .tab-menu-list { left: 8px; transform: none; }
 .tab-menu-list {
   position: absolute;
   bottom: calc(100% + 8px);
@@ -981,7 +984,10 @@ textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .table-view a { color: var(--text); }
 
 /* Backup screen (mobile app) */
-.backup-card { margin-bottom: 12px; }
+.backup-card, .settings-card { margin-bottom: 12px; }
+.settings-card { display: flex; flex-direction: column; gap: 12px; }
+.settings-card h2 { margin: 0; }
+.settings-card .hint { margin: 0; }
 .backup-card h2 { margin-bottom: 4px; }
 .backup-card .hint { margin: 0 0 12px; }
 .file-button { cursor: pointer; }

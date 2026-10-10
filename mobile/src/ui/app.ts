@@ -19,7 +19,7 @@ export interface Ctx {
 export interface View {
   title: string;
   /** Which bottom-bar item is current; omit it (and set tabbar: false) for forms. */
-  section?: "day" | "routines" | "workouts" | "exercises" | "progress" | "backup";
+  section?: "day" | "routines" | "workouts" | "exercises" | "progress" | "backup" | "settings";
   tabbar?: boolean;
   /** Extra class on <main>, e.g. "has-timer". */
   screenClass?: string;
@@ -127,10 +127,23 @@ async function show(keepScroll: boolean) {
   wireNav(controller.signal);
 }
 
+const gearIcon = html`<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor"
+  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
+
 function shell(view: View, messages: typeof flashes) {
   const tabbar = view.tabbar ?? true;
+  const tracking = [["day", "Today"], ["progress", "Progress"]] as const;
   const library = [["routines", "Routines"], ["workouts", "Workouts"], ["exercises", "Exercises"], ["backup", "Backup"]] as const;
   const current = (s: string) => (view.section === s ? "page" : nothing);
+  // A pop-up menu button (user requirement: the label stays fixed and turns accent-colored on any of its screens).
+  const menu = (id: string, label: string, items: readonly (readonly [string, string])[]) => html`
+    <div class="tab-menu">
+      <button type="button" class="tab-menu-btn" aria-expanded="false" aria-controls="${id}-menu"
+              ?data-current=${items.some(([k]) => k === view.section)}>${label} <span aria-hidden="true">&#9652;</span></button>
+      <div class="tab-menu-list" id="${id}-menu" hidden>
+        ${items.map(([k, text]) => html`<a href="#/${k}" aria-current=${current(k)}>${text}</a>`)}
+      </div>
+    </div>`;
   return html`
     <main class="screen${tabbar ? " has-tabbar" : ""}${view.screenClass ? ` ${view.screenClass}` : ""}">
       ${messages.map((m) => html`<div class="flash${m.error ? " error" : ""}" role=${m.error ? "alert" : "status"}>${m.message}</div>`)}
@@ -138,15 +151,9 @@ function shell(view: View, messages: typeof flashes) {
     </main>
     ${tabbar ? html`
       <nav class="tabbar" aria-label="Main">
-        <a href="#/day" aria-current=${current("day")}>Today</a>
-        <div class="tab-menu">
-          <button type="button" class="tab-menu-btn" id="library-btn" aria-expanded="false" aria-controls="library-menu"
-                  ?data-current=${library.some(([k]) => k === view.section)}>Library <span aria-hidden="true">&#9652;</span></button>
-          <div class="tab-menu-list" id="library-menu" hidden>
-            ${library.map(([k, label]) => html`<a href="#/${k}" aria-current=${current(k)}>${label}</a>`)}
-          </div>
-        </div>
-        <a href="#/progress" aria-current=${current("progress")}>Progress</a>
+        ${menu("tracking", "Tracking", tracking)}
+        ${menu("library", "Library", library)}
+        <a href="#/settings" class="tab-icon" aria-label="Settings" aria-current=${current("settings")}>${gearIcon}</a>
       </nav>` : nothing}
     <dialog class="sheet" id="confirm-delete" aria-labelledby="confirm-delete-title">
       <h2 id="confirm-delete-title">Delete?</h2>
@@ -158,11 +165,10 @@ function shell(view: View, messages: typeof flashes) {
     </dialog>`;
 }
 
-/** The bottom bar's Library menu, and the shared delete confirmation (see data-confirm-delete). */
+/** The bottom bar's pop-up menus (Tracking, Library), and the shared delete confirmation (see data-confirm-delete). */
 function wireNav(signal: AbortSignal) {
-  const btn = document.getElementById("library-btn");
-  const menu = document.getElementById("library-menu");
-  if (btn && menu) {
+  for (const btn of document.querySelectorAll<HTMLButtonElement>(".tab-menu-btn")) {
+    const menu = document.getElementById(btn.getAttribute("aria-controls")!)!;
     const setOpen = (open: boolean) => {
       menu.hidden = !open;
       btn.setAttribute("aria-expanded", String(open));
@@ -171,8 +177,9 @@ function wireNav(signal: AbortSignal) {
       setOpen(menu.hidden === true);
       if (!menu.hidden) menu.querySelector("a")!.focus();
     }, { signal });
+    // Clicking anywhere outside this menu (including the other menu's button) closes it.
     document.addEventListener("click", (e) => {
-      if (!menu.hidden && !(e.target as Element).closest(".tab-menu")) setOpen(false);
+      if (!menu.hidden && !menu.parentElement!.contains(e.target as Node)) setOpen(false);
     }, { signal });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !menu.hidden) {

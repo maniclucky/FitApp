@@ -13,6 +13,7 @@ import "./ui/views/day";
 import "./ui/views/exercises";
 import "./ui/views/progress";
 import "./ui/views/routines";
+import "./ui/views/settings";
 import "./ui/views/workouts";
 
 async function main() {

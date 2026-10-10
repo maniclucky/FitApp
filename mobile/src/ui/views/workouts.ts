@@ -10,6 +10,7 @@ import {
 import { type Ctx, currentPath, flash, href, navigate, refresh, returnTo, route, stash, takeStash } from "../app";
 import { cardCopyButton, copyName } from "../copy";
 import { longPressReorder } from "../dragReorder";
+import { quickFillOn } from "../prefs";
 import { exerciseFilter, filterControls } from "../exerciseFilter";
 import { formatTime, parseTime } from "../time";
 import { takeCreatedExercises } from "./exercises";
@@ -172,6 +173,7 @@ function mountBuilder(
   onSave: (name: string, items: EditItem[]) => Promise<void>,
 ) {
   const byId = new Map(options.map((o) => [o.id, o]));
+  const quickFill = quickFillOn(); // Settings can turn autofill off (ui/prefs.ts)
   // Saved values are numbers (time in seconds); the builder edits them as text.
   const asText = (field: string, v: unknown) =>
     v == null || v === "" ? null : field === "time" && typeof v === "number" ? formatTime(v) : String(v);
@@ -377,7 +379,7 @@ function mountBuilder(
     const value = el.value === "" ? null : TEXT_FIELDS.includes(field) ? el.value : Number(el.value);
     (item.sets[s] as any)[field] = value;
     markValidity(i, s);
-    if (!item.filled[field]) {
+    if (quickFill && !item.filled[field]) {
       const repField = field === "min" || field === "max";
       item.sets.forEach((set, t) => {
         if (t === s || (repField && set.amrap)) return;

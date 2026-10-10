@@ -18,8 +18,9 @@ import { longPressReorder } from "../dragReorder";
 import { formatTime, parseTime } from "../time";
 import { historyList } from "./history";
 import { tapHaptic } from "../native";
+import { quickFillOn } from "../prefs";
 import { takeCreatedExercises } from "./exercises";
-import { mountRestTimer, restTimerBar, restTimerSheet } from "./restTimer";
+import { mountRestTimer, restTimerBar } from "./restTimer";
 
 // How each tracking mode appears as a column.
 const FIELDS: Record<TrackingMode, { field: keyof LogSet; label: string; inputmode: string }> = {
@@ -301,7 +302,6 @@ async function dayView(ctx: Ctx, date: string) {
         </div>
       </dialog>
 
-      ${restTimerSheet()}
       ${restTimerBar()}
       <div class="toast" id="toast" role="status" hidden></div>`,
     mount(root: HTMLElement, signal: AbortSignal) {
@@ -396,7 +396,8 @@ function mountDay(
   // column on its later sets that are empty and not checked off, and saved with it. After that
   // the column counts as filled and every set is edited on its own. A column that already has a
   // value anywhere (e.g. after a reload) is filled from the start.
-  const AUTOFILL = ["weight", "reps"];
+  // Settings can turn it off (Quick fill, ui/prefs.ts).
+  const AUTOFILL = quickFillOn() ? ["weight", "reps"] : [];
   const filled = new Set<string>(); // `${lx}:${field}`
   for (const input of dayEl.querySelectorAll<HTMLInputElement>("input[data-field]")) {
     if (input.value) filled.add(`${input.closest<HTMLElement>("[data-lx]")!.dataset.lx}:${input.dataset.field}`);
